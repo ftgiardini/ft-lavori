@@ -76,7 +76,32 @@ export const TABLES = [
       return j;
     },
   },
+  {
+    // appuntamenti, promemoria e lavori extra (tabella aggiunta dopo: se manca l'app continua a funzionare)
+    name: 'events', key: 'events', optional: true, order: ['date', 'id'],
+    toRow: (e) => ({
+      id: e.id, kind: e.kind || 'appuntamento', title: e.title || '', date: orNull(e.date),
+      start_time: orNull(e.time), end_time: orNull(e.endTime), place: e.place || '', note: e.note || '',
+      assignees: e.assignees || [], done: !!e.done, done_at: e.doneAt ?? null, done_by: e.doneBy ?? null,
+      created_by: e.createdBy ?? null, created_at: e.createdAt ?? null,
+    }),
+    fromRow: (r) => {
+      const e = {
+        id: r.id, kind: r.kind, title: r.title || '', date: r.date, time: r.start_time || '', endTime: r.end_time || '',
+        place: r.place || '', note: r.note || '', assignees: r.assignees || [], done: !!r.done,
+        createdBy: r.created_by || null, createdAt: r.created_at ?? null,
+      };
+      if (r.done_at != null) e.doneAt = Number(r.done_at);
+      if (r.done_by) e.doneBy = r.done_by;
+      return e;
+    },
+  },
 ];
+
+// Tabelle facoltative che il database non ha ancora (es. schema.sql non rieseguito dopo un aggiornamento)
+const missingTables = new Set();
+export const tableAvailable = (name) => !missingTables.has(name);
+const isMissingTable = (err) => ['PGRST205', '42P01'].includes(err?.code) || /could not find the table|does not exist/i.test(err?.message || '');
 const tableByName = Object.fromEntries(TABLES.map((t) => [t.name, t]));
 
 // JSON con chiavi ordinate: il database riordina i campi dei JSON, così il confronto resta affidabile
@@ -191,7 +216,12 @@ async function fetchTable(t) {
     let q = getClient().from(t.name).select('*');
     for (const col of t.order) q = q.order(col, { ascending: true });
     const { data, error } = await q.range(from, from + size - 1);
+    if (error && t.optional && isMissingTable(error)) {
+      missingTables.add(t.name);
+      return [];
+    }
     if (error) throw error;
+    missingTables.delete(t.name);
     out.push(...data);
     if (data.length < size) break;
   }
@@ -210,14 +240,17 @@ export async function pullAll() {
   });
   synced = next;
   setStatus('ok');
+  // una tabella è comparsa (o sparita) nel database: aggiorna l'ascolto in tempo reale
+  if (channel && [...missingTables].join() !== subscribedMissing) subscribeRealtime();
   return data;
 }
 
 // ---------- Invio delle modifiche ----------
 
 function diff(t, state) {
-  const list = t.single ? [state[t.key]] : state[t.key] || [];
   const map = synced[t.name];
+  if (missingTables.has(t.name)) return { t, upserts: [], updates: [], deletes: [] };
+  const list = t.single ? [state[t.key]] : state[t.key] || [];
   const ids = new Set();
   const upserts = [];
   const updates = [];
@@ -334,6 +367,7 @@ export function schedulePush(delay = 250) {
 // ---------- Tempo reale ----------
 
 let channel = null;
+let subscribedMissing = '';
 
 function applyChange(t, payload) {
   const state = hooks.getState();
@@ -380,7 +414,9 @@ export function subscribeRealtime() {
   channel?.unsubscribe();
   let dropped = false;
   channel = getClient().channel('ftg-lavori');
+  subscribedMissing = [...missingTables].join();
   for (const t of TABLES) {
+    if (missingTables.has(t.name)) continue;
     channel.on('postgres_changes', { event: '*', schema: 'public', table: t.name }, (payload) => applyChange(t, payload));
   }
   channel.subscribe((st) => {

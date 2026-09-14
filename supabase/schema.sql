@@ -103,6 +103,26 @@ create table if not exists public.jobs (
 create index if not exists jobs_condo_idx on public.jobs (condo_id);
 create index if not exists jobs_date_idx on public.jobs (date);
 
+-- ---------- Appuntamenti, promemoria, lavori extra ----------
+create table if not exists public.events (
+  id         text primary key,
+  kind       text not null default 'appuntamento' check (kind in ('appuntamento', 'promemoria', 'lavoro')),
+  title      text not null default '',
+  date       date not null,
+  start_time text check (start_time is null or start_time ~ '^[0-2][0-9]:[0-5][0-9]$'),
+  end_time   text check (end_time is null or end_time ~ '^[0-2][0-9]:[0-5][0-9]$'),
+  place      text not null default '',
+  note       text not null default '',
+  assignees  text[] not null default '{}',
+  done       boolean not null default false,
+  done_at    bigint,
+  done_by    text,
+  created_by text,
+  created_at bigint,
+  updated_at timestamptz not null default now()
+);
+create index if not exists events_date_idx on public.events (date);
+
 -- ============================================================================
 -- Regole di accesso
 --   titolare    → tutto
@@ -125,9 +145,10 @@ alter table public.settings   enable row level security;
 alter table public.work_types enable row level security;
 alter table public.condos     enable row level security;
 alter table public.jobs       enable row level security;
+alter table public.events     enable row level security;
 
-revoke all on public.profiles, public.settings, public.work_types, public.condos, public.jobs, public.team_seed from anon;
-grant select, insert, update, delete on public.profiles, public.settings, public.work_types, public.condos, public.jobs to authenticated;
+revoke all on public.profiles, public.settings, public.work_types, public.condos, public.jobs, public.events, public.team_seed from anon;
+grant select, insert, update, delete on public.profiles, public.settings, public.work_types, public.condos, public.jobs, public.events to authenticated;
 
 -- Persone
 drop policy if exists "profili lettura" on public.profiles;
@@ -186,6 +207,35 @@ begin
 end $$;
 drop trigger if exists jobs_guard on public.jobs;
 create trigger jobs_guard before update on public.jobs for each row execute function public.jobs_guard();
+
+-- Appuntamenti: Nicolas e Martina vedono e gestiscono tutto;
+-- gli altri vedono solo quelli per loro (o per tutti) e possono solo segnarli come fatti
+drop policy if exists "appuntamenti lettura" on public.events;
+create policy "appuntamenti lettura" on public.events for select to authenticated
+  using (public.is_manager() or cardinality(assignees) = 0 or auth.uid()::text = any (assignees));
+drop policy if exists "appuntamenti inserimento" on public.events;
+create policy "appuntamenti inserimento" on public.events for insert to authenticated with check (public.is_manager());
+drop policy if exists "appuntamenti eliminazione" on public.events;
+create policy "appuntamenti eliminazione" on public.events for delete to authenticated using (public.is_manager());
+drop policy if exists "appuntamenti modifica" on public.events;
+create policy "appuntamenti modifica" on public.events for update to authenticated
+  using (public.is_manager() or cardinality(assignees) = 0 or auth.uid()::text = any (assignees))
+  with check (true);
+
+create or replace function public.events_guard() returns trigger
+language plpgsql set search_path = public as $$
+begin
+  if auth.uid() is not null and not public.is_manager()
+     and (new.id, new.kind, new.title, new.date, new.start_time, new.end_time, new.place, new.note, new.assignees, new.created_by, new.created_at)
+         is distinct from
+         (old.id, old.kind, old.title, old.date, old.start_time, old.end_time, old.place, old.note, old.assignees, old.created_by, old.created_at) then
+    raise exception 'Modifica non consentita' using errcode = '42501';
+  end if;
+  new.updated_at := now();
+  return new;
+end $$;
+drop trigger if exists events_guard on public.events;
+create trigger events_guard before update on public.events for each row execute function public.events_guard();
 
 create or replace function public.touch_updated_at() returns trigger
 language plpgsql as $$
@@ -252,7 +302,7 @@ begin
   if not exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
     create publication supabase_realtime;
   end if;
-  foreach t in array array['profiles', 'settings', 'work_types', 'condos', 'jobs'] loop
+  foreach t in array array['profiles', 'settings', 'work_types', 'condos', 'jobs', 'events'] loop
     if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t) then
       execute format('alter publication supabase_realtime add table public.%I', t);
     end if;

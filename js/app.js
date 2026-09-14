@@ -3,6 +3,7 @@ import * as store from './store.js';
 import { icon } from './icons.js';
 import { avatar, memberSub } from './components.js';
 import { toggleDone, openPostponeSheet, openJobSheet } from './views/job-sheet.js';
+import { openEventSheet } from './views/event-sheet.js';
 import * as home from './views/home.js';
 import * as today from './views/today.js';
 import * as calendar from './views/calendar.js';
@@ -310,6 +311,11 @@ document.addEventListener('click', (e) => {
   }
   if (action === 'postpone') openPostponeSheet(id);
   if (action === 'open-job') openJobSheet(id);
+  if (action === 'open-event') openEventSheet(id);
+  if (action === 'toggle-event') {
+    store.toggleEventDone(id);
+    document.querySelectorAll(`.check[data-id="${id}"]`).forEach((b) => b.classList.add('pop'));
+  }
 });
 
 document.addEventListener('submit', (e) => {

@@ -2,8 +2,9 @@
 import * as store from '../store.js';
 import { icon } from '../icons.js';
 import { rerender, isWide } from '../ui.js';
-import { jobCard, avatar, seasonChips } from '../components.js';
-import { openAddJobSheet } from './job-sheet.js';
+import { jobCard, eventCard, avatar, seasonChips } from '../components.js';
+import { openAddChooser } from './event-sheet.js';
+import { eventKind } from '../data.js';
 import { esc, todayISO, addDays, startOfWeek, parseISO, toISO, fmtLong, fmtShort, MONTHS, WEEKDAYS_SHORT, seasonOf } from '../utils.js';
 
 let mode = 'mese';
@@ -37,7 +38,8 @@ export function render() {
   weekStart ??= startOfWeek(t);
   if (member === undefined) member = user.field && !admin ? user.id : null;
 
-  const team = store.fieldTeam();
+  // chi gestisce può filtrare anche su chi non va in cantiere (es. gli appuntamenti di Martina)
+  const team = admin ? store.getState().team : store.fieldTeam();
   const filter = `
     <div class="pick cal-filter">
       <button class="${member === null ? 'on' : ''}" data-member="">${icon('users')}Tutti</button>
@@ -60,6 +62,7 @@ export function render() {
       const iso = addDays(gridStart, i);
       const d = parseISO(iso);
       const jobs = store.jobsOn(iso, member);
+      const events = store.eventsOn(iso, member);
       const late = jobs.some((j) => !store.isDone(j) && iso < t);
       const cls = [
         d.getMonth() !== monthIdx && 'out',
@@ -67,19 +70,28 @@ export function render() {
         iso === selected && 'sel',
         (d.getDay() === 0 || d.getDay() === 6) && 'weekend',
       ].filter(Boolean).join(' ');
+      // sul telefono: puntini (quadratini = appuntamenti); da computer: le prime voci del giorno
+      const items = [
+        ...events.map((ev) => `<span class="ev ${ev.done ? 'done' : ''}" style="--c:${eventKind(ev.kind).color}" title="${esc(ev.title)}">${ev.time ? `${esc(ev.time)} ` : ''}${esc(ev.title)}</span>`),
+        ...jobs.map((j) => `<span class="${store.isDone(j) ? 'done' : ''}" style="--c:${store.typeById(j.typeId).color}" title="${esc(store.condoById(j.condoId)?.name || '')}">${esc(store.typeById(j.typeId).name)}</span>`),
+      ];
       cells += `
-        <button class="cal-day ${cls}" data-select="${iso}" aria-label="${fmtLong(iso)}: ${jobs.length} lavori">
+        <button class="cal-day ${cls}" data-select="${iso}" aria-label="${fmtLong(iso)}: ${jobs.length} lavori, ${events.length} appuntamenti">
           <span class="cal-num">${d.getDate()}</span>
           ${late ? '<span class="cal-late"></span>' : ''}
-          <span class="cal-dots">${jobs.slice(0, 6).map((j) => `<i class="${store.isDone(j) ? 'done' : ''}" style="--c:${store.typeById(j.typeId).color}"></i>`).join('')}</span>
+          <span class="cal-dots">${[
+            ...events.slice(0, 3).map((ev) => `<i class="ev ${ev.done ? 'done' : ''}" style="--c:${eventKind(ev.kind).color}"></i>`),
+            ...jobs.slice(0, 6 - Math.min(3, events.length)).map((j) => `<i class="${store.isDone(j) ? 'done' : ''}" style="--c:${store.typeById(j.typeId).color}"></i>`),
+          ].join('')}</span>
           <span class="cal-items">
-            ${jobs.slice(0, 3).map((j) => `<span class="${store.isDone(j) ? 'done' : ''}" style="--c:${store.typeById(j.typeId).color}" title="${esc(store.condoById(j.condoId)?.name || '')}">${esc(store.typeById(j.typeId).name)}</span>`).join('')}
-            ${jobs.length > 3 ? `<span style="--c:#858D87">+${jobs.length - 3} altri</span>` : ''}
+            ${items.slice(0, 3).join('')}
+            ${items.length > 3 ? `<span style="--c:#858D87">+${items.length - 3} altri</span>` : ''}
           </span>
         </button>`;
     }
 
     const dayJobs = store.jobsOn(selected, member);
+    const dayEvents = store.eventsOn(selected, member);
     const month = `
       <div class="row wrap" style="margin:-4px 2px 10px;gap:6px">${seasonChips([monthIdx + 1])}<span class="small muted">stagione del mese</span></div>
       <div class="card cal-card">
@@ -92,9 +104,10 @@ export function render() {
           <h2>${fmtLong(selected)}</h2>
           ${admin ? `<button class="link-btn" data-add="${selected}">${icon('plus')}Aggiungi</button>` : ''}
         </div>
+        ${dayEvents.length ? `<div class="list">${dayEvents.map((ev) => eventCard(ev)).join('')}</div>` : ''}
         ${dayJobs.length
-          ? `<div class="list">${dayJobs.map((j) => jobCard(j, { actions: true })).join('')}</div>`
-          : `<div class="week-empty">Nessun lavoro in questo giorno.</div>`}
+          ? `<div class="list" ${dayEvents.length ? 'style="margin-top:10px"' : ''}>${dayJobs.map((j) => jobCard(j, { actions: true })).join('')}</div>`
+          : dayEvents.length ? '' : `<div class="week-empty">Niente in programma in questo giorno.</div>`}
       </div>`;
     // Da computer: calendario a sinistra, lavori del giorno scelto a destra
     body = isWide()
@@ -107,16 +120,18 @@ export function render() {
     for (let i = 0; i < 7; i++) {
       const iso = addDays(weekStart, i);
       const jobs = store.jobsOn(iso, member);
+      const events = store.eventsOn(iso, member);
       const done = jobs.filter(store.isDone).length;
-      // salta i giorni non lavorativi (es. domenica) se non ci sono lavori
-      if (!store.getState().settings.workDays.includes(parseISO(iso).getDay()) && !jobs.length) continue;
+      // salta i giorni non lavorativi (es. domenica) se non c'è niente in programma
+      if (!store.getState().settings.workDays.includes(parseISO(iso).getDay()) && !jobs.length && !events.length) continue;
       body += `
         <section class="week-day ${iso === t ? 'today' : ''}">
           <header class="week-day-head">
             <strong>${WEEKDAYS_SHORT[parseISO(iso).getDay()]} ${parseISO(iso).getDate()}${iso === t ? ' · Oggi' : ''}</strong>
-            <span class="row small muted">${jobs.length ? `${done}/${jobs.length} fatti` : ''}${admin ? `<button class="link-btn" data-add="${iso}">${icon('plus')}</button>` : ''}</span>
+            <span class="row small muted">${jobs.length ? `${done}/${jobs.length} fatti` : ''}${admin ? `<button class="link-btn" data-add="${iso}" aria-label="Aggiungi">${icon('plus')}</button>` : ''}</span>
           </header>
-          ${jobs.length ? `<div class="list">${jobs.map((j) => jobCard(j, { actions: true })).join('')}</div>` : '<div class="week-empty">Nessun lavoro</div>'}
+          ${events.length ? `<div class="list">${events.map((ev) => eventCard(ev)).join('')}</div>` : ''}
+          ${jobs.length ? `<div class="list" ${events.length ? 'style="margin-top:10px"' : ''}>${jobs.map((j) => jobCard(j, { actions: true })).join('')}</div>` : events.length ? '' : '<div class="week-empty">Niente in programma</div>'}
         </section>`;
     }
     // Da computer: i giorni della settimana affiancati
@@ -173,7 +188,7 @@ export function render() {
           weekStart = startOfWeek(selected);
           rerender();
         } else if (el.dataset.add) {
-          openAddJobSheet({ date: el.dataset.add });
+          openAddChooser(el.dataset.add);
         }
       });
     },

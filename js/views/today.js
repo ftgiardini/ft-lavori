@@ -2,7 +2,8 @@
 import * as store from '../store.js';
 import { icon } from '../icons.js';
 import { rerender } from '../ui.js';
-import { jobCard, emptyState, sectionHead, daysLabel } from '../components.js';
+import { jobCard, eventCard, emptyState, sectionHead, daysLabel } from '../components.js';
+import { openEventForm } from './event-sheet.js';
 import { esc, todayISO, addDays, fmtLong, diffDays, mapsUrl, plural } from '../utils.js';
 
 let day = null;
@@ -30,6 +31,8 @@ export function render() {
   const memberId = user.field && mode === 'mine' ? user.id : null;
 
   const jobs = store.jobsOn(day, memberId);
+  const events = store.eventsOn(day, memberId);
+  const admin = store.can('gestione');
   const done = jobs.filter(store.isDone).length;
   const overdue = day === t ? store.overdueJobs(memberId) : [];
 
@@ -52,11 +55,20 @@ export function render() {
       <button class="icon-btn" data-day="1" aria-label="Giorno successivo">${icon('right')}</button>
     </div>
 
-    ${user.field || day !== t ? `
-    <div class="row-between" style="min-height:40px">
+    ${user.field || day !== t || admin ? `
+    <div class="row-between wrap" style="min-height:40px">
       ${user.field ? `<div class="seg"><button class="${mode === 'mine' ? 'on' : ''}" data-mode="mine">I miei lavori</button><button class="${mode === 'all' ? 'on' : ''}" data-mode="all">Tutta la squadra</button></div>` : '<span></span>'}
-      ${day !== t ? `<button class="link-btn" data-day="0">${icon('today')}Oggi</button>` : ''}
+      <span class="row" style="gap:4px">
+        ${day !== t ? `<button class="link-btn" data-day="0">${icon('today')}Oggi</button>` : ''}
+        ${admin ? `<button class="link-btn" data-new-event>${icon('plus')}Appuntamento</button>` : ''}
+      </span>
     </div>` : ''}
+
+    ${events.length ? `
+      <div class="section" style="margin-top:12px">
+        ${sectionHead(`Appuntamenti e promemoria (${events.length})`)}
+        <div class="list list-2">${events.map((ev) => eventCard(ev)).join('')}</div>
+      </div>` : ''}
 
     ${jobs.length ? `
       <div class="card day-progress">
@@ -86,8 +98,10 @@ export function render() {
     }).join('')}
     </div>
 
-    ${!jobs.length ? `<div class="card">${
-      memberId && !store.isAvailable(user, day)
+    ${!jobs.length ? `<div class="card" ${events.length ? 'style="margin-top:22px"' : ''}>${
+      events.length
+        ? emptyState('sun', 'Nessun lavoro nei condomini', 'Ci sono solo gli appuntamenti qui sopra.')
+        : memberId && !store.isAvailable(user, day)
         ? emptyState('sun', 'Giorno libero', `Lavori ${esc(daysLabel(user))}: i tuoi lavori li trovi in quei giorni.`)
         : emptyState('sun', day === t ? 'Nessun lavoro in programma oggi' : 'Nessun lavoro in programma', mode === 'mine' ? 'Prova a guardare i lavori di tutta la squadra.' : 'Controlla il calendario per i prossimi giorni.')
     }</div>` : ''}
@@ -113,6 +127,7 @@ export function render() {
         }
         const m = e.target.closest('[data-mode]');
         if (m) { mode = m.dataset.mode; rerender(); }
+        if (e.target.closest('[data-new-event]')) openEventForm({ date: day });
       });
     },
   };

@@ -2,6 +2,7 @@
 import { icon } from './icons.js';
 import { esc, relDay, initials, seasonsFor, todayISO, WEEKDAYS, WEEKDAYS_SHORT } from './utils.js';
 import * as store from './store.js';
+import { eventKind } from './data.js';
 
 export function avatar(member, size = 'sm') {
   if (!member) return '';
@@ -45,6 +46,34 @@ export function sectionHead(title, extra = '') {
 
 export function emptyState(iconName, title, text = '') {
   return `<div class="empty">${icon(iconName)}<h3>${esc(title)}</h3>${text ? `<p>${text}</p>` : ''}</div>`;
+}
+
+/** "09:30–11:00", "09:30" oppure "Tutto il giorno" */
+export function eventTimeLabel(ev) {
+  if (!ev.time) return 'Tutto il giorno';
+  return ev.endTime ? `${ev.time}–${ev.endTime}` : ev.time;
+}
+
+/** Scheda di un appuntamento / promemoria / lavoro extra */
+export function eventCard(ev, { showDate = false } = {}) {
+  const kind = eventKind(ev.kind);
+  const people = ev.assignees?.length ? avatars(ev.assignees) : '<span class="chip">Per tutti</span>';
+  const canToggle = store.canToggleEvent(ev);
+  return `
+  <article class="job event ${ev.done ? 'is-done' : ''}" style="--c:${kind.color}">
+    <div class="job-row">
+      <button class="job-main" data-action="open-event" data-id="${ev.id}">
+        <span class="type-ic type-ic-md" style="--c:${kind.color}">${icon(kind.icon)}</span>
+        <span class="job-text">
+          <span class="job-title">${esc(ev.title || kind.label)}</span>
+          <span class="job-sub">${showDate ? `${esc(relDay(ev.date))} · ` : ''}${esc(eventTimeLabel(ev))}${ev.place ? ` · ${esc(ev.place)}` : ''}</span>
+          ${ev.note ? `<span class="event-note">${esc(ev.note)}</span>` : ''}
+          <span class="job-meta"><span class="chip" style="color:${kind.color}">${icon(kind.icon)}${esc(kind.label)}</span>${people}</span>
+        </span>
+      </button>
+      ${canToggle ? `<button class="check ${ev.done ? 'checked' : ''}" data-action="toggle-event" data-id="${ev.id}" aria-label="${ev.done ? 'Segna come da fare' : 'Segna come fatto'}">${icon('check')}</button>` : ''}
+    </div>
+  </article>`;
 }
 
 /**

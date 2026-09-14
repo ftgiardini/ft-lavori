@@ -39,6 +39,14 @@ export const DEFAULT_TEAM = [
   { id: 'tomas', name: 'Tomas', role: 'giardiniere', title: 'Giardiniere', field: true, color: '#D9772B' },
 ];
 
+// Voci del calendario che non sono lavori dei contratti
+export const EVENT_KINDS = [
+  { id: 'appuntamento', label: 'Appuntamento', icon: 'calendar', color: '#4F7CAC', placeholder: 'Es. Sopralluogo con l’amministratore' },
+  { id: 'promemoria', label: 'Promemoria', icon: 'bell', color: '#D99A1E', placeholder: 'Es. Chiamare il vivaio per le piante' },
+  { id: 'lavoro', label: 'Lavoro extra', icon: 'tool', color: '#7B61C9', placeholder: 'Es. Potatura giardino privato via Roma' },
+];
+export const eventKind = (id) => EVENT_KINDS.find((k) => k.id === id) || EVENT_KINDS[0];
+
 export const POSTPONE_REASONS = ['Maltempo', 'Tempo insufficiente', 'Accesso non possibile', 'Mezzi / attrezzi', 'Altro'];
 
 export const WORK_COLORS = ['#48AB33', '#2A7D2E', '#6E9F4E', '#8A5A3B', '#D9772B', '#B8962E', '#4F7CAC', '#2B8FA8', '#7B61C9', '#B5523B', '#7A8794'];

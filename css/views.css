@@ -249,6 +249,17 @@
 .install-banner .icon-btn { color: #fff; }
 .version { text-align: center; color: var(--muted); font-size: 12px; margin-top: 26px; }
 
+/* Appuntamenti e promemoria */
+.event .job-sub { white-space: normal; }
+.event-note { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 13px; color: var(--muted); margin-top: 2px; }
+.event-note-full { white-space: pre-wrap; background: #F6F8F5; border-radius: 12px; padding: 12px 14px; color: var(--ink); font-size: 15px; line-height: 1.5; }
+.event.is-done .job-title { color: var(--muted); text-decoration: line-through; text-decoration-thickness: 1.5px; }
+.cal-dots i.ev { border-radius: 2px; transform: rotate(45deg) scale(.9); }
+.cal-items span.ev { font-weight: 800; border-left: 3px solid var(--c); border-radius: 3px 5px 5px 3px; }
+.week-empty .link-btn { padding: 0 4px; }
+.ev-allday { display: flex; }
+.ev-allday button { flex: 1; padding: 11px 8px; }
+
 /* Preventivi */
 .q-presets button:disabled { opacity: .45; }
 .q-rows { margin-top: 14px; display: flex; flex-direction: column; gap: 10px; }

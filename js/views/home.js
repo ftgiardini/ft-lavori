@@ -3,8 +3,9 @@
 import * as store from '../store.js';
 import { icon } from '../icons.js';
 import { rerender, isWide } from '../ui.js';
-import { jobCard, progressBar, sectionHead, typeIcon, emptyState, avatar } from '../components.js';
+import { jobCard, eventCard, progressBar, sectionHead, typeIcon, emptyState, avatar } from '../components.js';
 import { openAddJobSheet } from './job-sheet.js';
+import { openEventForm } from './event-sheet.js';
 import * as today from './today.js';
 import { esc, todayISO, fmtLong, startOfWeek, addDays, currentSeasonRange, fmtShort, parseISO } from '../utils.js';
 
@@ -44,8 +45,20 @@ export function render() {
   const actions = `
     <div class="hero-actions">
       <a class="btn btn-primary" href="#/condomini/nuovo">${icon('plus')}Nuovo condominio</a>
+      <button class="btn btn-soft" data-new-event>${icon('bell')}Nuovo appuntamento</button>
       <button class="btn btn-ghost" data-add-job>${icon('calendar')}Aggiungi intervento</button>
       <a class="btn btn-ghost" href="#/preventivi">${icon('file')}Crea preventivo</a>
+    </div>`;
+
+  // Appuntamenti e promemoria di oggi e dei prossimi 7 giorni (di tutti)
+  const upcoming = store.eventsBetween(t, addDays(t, 7)).filter((ev) => !ev.done || ev.date === t);
+  const eventsSec = `
+    <div class="section">
+      ${sectionHead('Appuntamenti e promemoria', '<a class="link-btn" href="#/calendario">Calendario</a>')}
+      ${upcoming.length
+        ? `<div class="list">${upcoming.slice(0, 6).map((ev) => eventCard(ev, { showDate: true })).join('')}</div>
+           ${upcoming.length > 6 ? `<p class="small muted" style="margin:8px 2px">E altri ${upcoming.length - 6} nel calendario.</p>` : ''}`
+        : `<div class="week-empty">Nessun appuntamento nei prossimi 7 giorni. <button class="link-btn" data-new-event>${icon('plus')}Aggiungi</button></div>`}
     </div>`;
 
   const kpis = `
@@ -183,9 +196,9 @@ export function render() {
       ${kpis}
       <div class="cols">
         <div class="cols-main">${overdueSec}${unscheduledSec}${remainingSec}</div>
-        <aside class="cols-side">${crewSec}${todaySec}${seasonSec}</aside>
+        <aside class="cols-side">${eventsSec}${crewSec}${todaySec}${seasonSec}</aside>
       </div>`
-    : `${hello}${kpis}${actions}${crewSec}${overdueSec}${unscheduledSec}${remainingSec}${seasonSec}`;
+    : `${hello}${kpis}${actions}${eventsSec}${crewSec}${overdueSec}${unscheduledSec}${remainingSec}${seasonSec}`;
 
   return {
     title: 'Home',
@@ -195,6 +208,7 @@ export function render() {
         if (e.target.closest('[data-scroll]')) document.getElementById('overdue')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         if (e.target.closest('[data-toggle-overdue]')) { showAllOverdue = !showAllOverdue; rerender(); }
         if (e.target.closest('[data-add-job]')) openAddJobSheet();
+        if (e.target.closest('[data-new-event]')) openEventForm({ date: todayISO() });
       });
     },
   };

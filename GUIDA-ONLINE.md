@@ -99,6 +99,12 @@ Primo accesso: tocca il tuo nome e scrivi la password.
 
 ---
 
+## Aggiornamenti del database
+
+Quando l'app riceve una funzione nuova che usa il database (es. **appuntamenti e promemoria**),
+va rieseguito lo stesso file una volta: apri `supabase/schema.sql` su GitHub → copia tutto →
+Supabase → **SQL Editor** → incolla → **Run**. Non cancella nessun dato: aggiunge solo quello che manca.
+
 ## Da sapere
 
 - **Senza campo in cantiere** l'app funziona lo stesso: le spunte restano sul telefono (in alto compare "Offline") e partono appena torna la connessione. Il **primo** accesso richiede internet.

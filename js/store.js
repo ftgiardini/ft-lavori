@@ -79,7 +79,7 @@ export async function load() {
 }
 
 function emptyCloudState() {
-  return { settings: { workDays: [1, 2, 3, 4, 5, 6] }, team: [], workTypes: [], condos: [], jobs: [] };
+  return { settings: { workDays: [1, 2, 3, 4, 5, 6] }, team: [], workTypes: [], condos: [], jobs: [], events: [] };
 }
 
 async function startSession(uid) {
@@ -147,6 +147,7 @@ function normalize(s) {
   s.workTypes ??= clone(DEFAULT_WORK_TYPES);
   s.condos ??= [];
   s.jobs ??= [];
+  s.events ??= [];
   // nuovo elenco dei lavori: si tengono i vecchi tipi solo se usati in qualche contratto
   if ((s.typesVersion || 1) < WORK_TYPES_VERSION) {
     const used = new Set([...s.condos.flatMap((c) => (c.works || []).map((w) => w.typeId)), ...s.jobs.map((j) => j.typeId)]);
@@ -383,6 +384,71 @@ export function unscheduledJobs() {
 export function jobsOfCondo(condoId) {
   return state.jobs.filter((j) => j.condoId === condoId);
 }
+
+// ---------- Appuntamenti, promemoria, lavori extra ----------
+
+export const eventById = (id) => (state.events || []).find((e) => e.id === id);
+
+/** Chi può vedere la voce: Nicolas e Martina tutto; gli altri solo le proprie (o quelle per tutti) */
+export function canSeeEvent(ev, user = currentUser()) {
+  if (!user) return false;
+  if (can('gestione')) return true;
+  return !ev.assignees?.length || ev.assignees.includes(user.id);
+}
+
+/** Può spuntarla come fatta: chi la riceve oppure chi gestisce */
+export const canToggleEvent = (ev, user = currentUser()) => !!user && (can('gestione') || !ev.assignees?.length || ev.assignees.includes(user.id));
+
+const byTime = (a, b) => (a.date || '').localeCompare(b.date || '') || (a.time || '').localeCompare(b.time || '') || (a.title || '').localeCompare(b.title || '');
+
+/** Voci di un giorno; memberId filtra per persona (null = tutte quelle visibili) */
+export function eventsOn(iso, memberId) {
+  return (state.events || []).filter((e) => e.date === iso && canSeeEvent(e) && matchesMember(e, memberId)).sort(byTime);
+}
+
+export function eventsBetween(from, to, memberId) {
+  return (state.events || []).filter((e) => e.date >= from && e.date <= to && canSeeEvent(e) && matchesMember(e, memberId)).sort(byTime);
+}
+
+export function saveEvent(data) {
+  if (!can('gestione')) return null;
+  const fields = {
+    kind: data.kind || 'appuntamento',
+    title: String(data.title || '').trim(),
+    date: data.date,
+    time: data.time || '',
+    endTime: data.time && data.endTime && data.endTime > data.time ? data.endTime : '',
+    place: String(data.place || '').trim(),
+    note: String(data.note || '').trim(),
+    assignees: [...new Set(data.assignees || [])],
+  };
+  let ev = data.id ? eventById(data.id) : null;
+  if (ev) {
+    Object.assign(ev, fields);
+  } else {
+    ev = { id: uid('e_'), ...fields, done: false, createdBy: currentUser()?.id || null, createdAt: Date.now() };
+    state.events.push(ev);
+  }
+  commit();
+  return ev;
+}
+
+export function deleteEvent(id) {
+  if (!can('gestione')) return;
+  state.events = state.events.filter((e) => e.id !== id);
+  commit();
+}
+
+export function toggleEventDone(id) {
+  const ev = eventById(id);
+  if (!ev || !canToggleEvent(ev)) return;
+  ev.done = !ev.done;
+  if (ev.done) { ev.doneAt = Date.now(); ev.doneBy = currentUser()?.id || null; } else { delete ev.doneAt; delete ev.doneBy; }
+  commit();
+}
+
+/** Il database online ha già la tabella degli appuntamenti? (serve rieseguire schema.sql una volta) */
+export const eventsAvailable = () => !isCloud || cloud.tableAvailable('events');
 
 /** "n° 4 di 10": i fatti vengono prima, poi i programmati in ordine di data */
 export function jobNumber(job) {
@@ -714,6 +780,9 @@ export function importData(text) {
       if (j.doneBy) job.doneBy = mapId(j.doneBy) || undefined;
       return job;
     });
+  if (Array.isArray(data.events) && cloud.tableAvailable('events')) {
+    state.events = data.events.map((e) => ({ ...e, assignees: mapIds(e.assignees), doneBy: e.doneBy ? mapId(e.doneBy) : e.doneBy, createdBy: e.createdBy ? mapId(e.createdBy) : e.createdBy }));
+  }
   commit();
 }
 
