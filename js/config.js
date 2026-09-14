@@ -6,8 +6,8 @@
 //    NON inserire mai qui la chiave "service_role" / "secret".
 // Se i due campi restano vuoti l'app funziona in "modalità prova": dati solo su questo dispositivo.
 
-export const SUPABASE_URL = '';
-export const SUPABASE_KEY = '';
+export const SUPABASE_URL = 'https://wizigheaxcnnemjjbzfg.supabase.co';
+export const SUPABASE_KEY = 'sb_publishable_QUr_-s_sBA1SjASMvIY6fA_LnTqJqcO';
 
 // Dominio usato per gli indirizzi di accesso (non servono caselle email vere)
 export const LOGIN_DOMAIN = 'lavori.ftgiardini.com';
