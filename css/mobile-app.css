@@ -1,0 +1,109 @@
+/* FT Giardini · Lavori — comportamento "da app" sullo smartphone
+   (titoli grandi, freccia indietro in alto, moduli a schermo intero, barre dei comandi a portata di pollice) */
+
+/* Pulsante indietro e titolo in alto */
+.topbar-back {
+  display: inline-flex; align-items: center; gap: 0; height: 40px; padding: 0 8px 0 2px; margin-left: -8px;
+  border-radius: 12px; color: var(--green-700); font-weight: 700; font-size: 15px; flex: none;
+}
+.topbar-back .ic { width: 26px; height: 26px; stroke-width: 2.4; }
+.topbar-back span { max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topbar-back:active { background: rgba(0, 0, 0, .06); }
+@media (min-width: 960px) { .topbar-back { display: none; } } /* da computer c'è già il link nella pagina e il menu laterale */
+button.topbar-title { text-align: left; padding: 0; }
+
+.page-head-row { display: flex; align-items: flex-start; gap: 12px; }
+
+/* Nuova schermata: comparsa morbida (solo opacità, così i pulsanti fissi non si spostano) */
+.view-enter { animation: view-in .2s ease-out both; }
+@keyframes view-in { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .view-enter { animation: none; } }
+
+/* Nome del file del preventivo */
+.q-file { position: relative; }
+.q-file .input { padding-right: 52px; }
+.q-file-ext { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); color: var(--muted); font-weight: 700; pointer-events: none; }
+.q-preview-sheet { padding: 8px; }
+.q-recent-open small .ic { width: 12px; height: 12px; vertical-align: -1px; }
+
+@media (max-width: 959px) {
+  /* Titolo grande nella pagina, titolo piccolo in alto solo quando si scorre */
+  .topbar-title { opacity: 0; transform: translateY(6px); transition: opacity .18s ease, transform .18s ease; }
+  .topbar.show-title .topbar-title { opacity: 1; transform: none; }
+  .topbar-back + .topbar-title { font-size: 16px; }
+
+  /* Il link "indietro" dentro la pagina diventa la freccia in alto */
+  .back-link { display: none; }
+
+  /* Menu in basso: pastiglia colorata dietro l'icona attiva */
+  .tab { isolation: isolate; transition: color .15s ease; }
+  .tab::before {
+    content: ""; position: absolute; top: 2px; left: 50%; width: 56px; height: 32px; margin-left: -28px;
+    border-radius: 16px; background: var(--green-100); z-index: -1;
+    opacity: 0; transform: scaleX(.5); transition: opacity .2s ease, transform .2s ease;
+  }
+  .tab.active::before { opacity: 1; transform: none; }
+  .tab:active::before { opacity: .6; transform: none; }
+
+  /* Tocchi: risposta immediata come nelle app */
+  .card:is(a, button), .kpi, .qa, .option, .login-user, .condo-card { transition: transform .1s ease; }
+  .card:is(a, button):active, .kpi:active, .qa:active, .option:active, .condo-card:active { transform: scale(.975); }
+  .menu-row:active, .remain-row:active, .crew-row:active, .activity-row:active, .job-main:active, .q-recent-open:active { background: #EEF3ED; }
+
+  /* Notifiche in basso, sopra al menu (zona del pollice) */
+  #toasts { top: auto; bottom: calc(var(--tabbar-h) + var(--safe-b) + 12px); flex-direction: column-reverse; }
+  .toast { transform: translateY(12px); }
+  body.no-scroll #toasts { top: calc(var(--safe-t) + 12px); bottom: auto; flex-direction: column; }
+
+  /* Moduli (nuovo condominio / modifica) a schermo intero, senza menu */
+  body.is-fullscreen .topbar,
+  body.is-fullscreen .tabbar,
+  body.is-fullscreen .fab,
+  body.is-fullscreen .install-banner { display: none; }
+  body.is-fullscreen .main { padding-top: 0; padding-bottom: calc(24px + var(--safe-b)); }
+  body.is-fullscreen .wiz-head {
+    position: sticky; top: 0; z-index: 8; margin: 0 -16px 10px; padding: calc(10px + var(--safe-t)) 12px 10px;
+    background: rgba(244, 247, 243, .94); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+    border-bottom: 1px solid rgba(231, 236, 234, .9);
+  }
+  body.is-fullscreen .wiz-foot {
+    bottom: 0; margin-left: -16px; margin-right: -16px; padding: 10px 16px calc(10px + var(--safe-b));
+    background: rgba(255, 255, 255, .96); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+    border-top: 1px solid var(--line);
+  }
+  body.is-fullscreen #toasts { bottom: calc(84px + var(--safe-b)); }
+
+  /* Preventivi: barra dei comandi fissa sopra al menu */
+  .q-bar {
+    position: sticky; bottom: calc(var(--tabbar-h) + var(--safe-b) + 10px); z-index: 20;
+    display: grid; grid-template-columns: auto 1fr 1fr; gap: 8px; margin: 16px -4px 0; padding: 8px;
+    border-radius: 20px; background: rgba(255, 255, 255, .94);
+    -webkit-backdrop-filter: saturate(1.6) blur(14px); backdrop-filter: saturate(1.6) blur(14px);
+    box-shadow: 0 8px 30px rgba(22, 59, 28, .18), 0 0 0 1px rgba(231, 236, 234, .9);
+  }
+  .q-bar .btn { min-height: 48px; padding: 0 12px; font-size: 15px; box-shadow: none; }
+  .q-bar .btn-ghost { padding: 0 12px; }
+  body.kbd .q-bar { display: none; }
+
+  /* Pannelli dal basso: più "nativi" */
+  .sheet { max-height: calc(100vh - var(--safe-t) - 24px); }
+  .sheet-foot .btn { min-height: 50px; }
+}
+
+@media (max-width: 380px) {
+  .q-bar .btn-ghost span { display: none; }
+  .q-bar { grid-template-columns: 48px 1fr 1fr; }
+  .q-bar .btn-ghost { padding: 0; }
+}
+
+/* Senza mouse: niente effetti "hover" che restano attaccati dopo il tocco */
+@media (hover: none) {
+  .remain-row:hover, .activity-row:hover, .crew-row:hover { background: transparent; }
+  .option:hover { border-color: transparent; }
+  .option.featured:hover { border-color: var(--green); }
+  .cal-day:hover { background: transparent; }
+  .cal-day.sel:hover { background: var(--green-100); }
+  .btn-ghost:hover { background: var(--card); }
+  .check:hover { border-color: #CBD5CC; color: transparent; }
+  .check.checked:hover { border-color: var(--green); color: #fff; }
+}
