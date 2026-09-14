@@ -99,7 +99,7 @@ function renderLogin(error = '') {
         </div>`}
         <p class="login-note">${store.isCloud
           ? 'Password dimenticata? Chiedi a Nicolas di impostarne una nuova.'
-          : 'Modalità prova · dati di esempio salvati solo su questo dispositivo'}</p>
+          : 'Versione senza database · i dati restano solo su questo dispositivo'}</p>
       </div>
     </div>`;
   if (m) setTimeout(() => document.getElementById('login-password')?.focus(), 60);

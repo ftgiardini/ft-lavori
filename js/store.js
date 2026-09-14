@@ -2,7 +2,7 @@
 // Due modalità:
 //  - ONLINE (Supabase configurato in config.js): dati condivisi tra tutti gli account, accesso con password,
 //    aggiornamenti in tempo reale. Una copia resta sul dispositivo per funzionare anche senza campo.
-//  - PROVA (config.js vuoto): dati di esempio salvati solo su questo dispositivo.
+//  - PROVA (config.js vuoto): dati salvati solo su questo dispositivo.
 // Le schermate usano sempre le stesse funzioni, qualunque sia la modalità.
 import { DEFAULT_WORK_TYPES, DEFAULT_TEAM, ROLES, WORK_TYPES_VERSION } from './data.js';
 import { uid, todayISO, parseISO } from './utils.js';

@@ -19,7 +19,7 @@ export const WORK_TYPES_VERSION = 3;
 //  impostazioni tipi di lavoro e giorni lavorativi
 //  squadra      schermata Squadra: attività dei giardinieri, persone, ruoli e password
 //  backup       scaricare il backup
-//  dati         caricare un backup, dati di esempio, cancellare tutto
+//  dati         caricare un backup, cancellare tutto
 export const ROLES = {
   titolare: { label: 'Titolare', desc: 'Controllo completo: squadra, password, condomini e dati', perms: ['gestione', 'condomini', 'elimina', 'impostazioni', 'squadra', 'backup', 'dati'] },
   ufficio: { label: 'Ufficio', desc: 'Condomini, contratti, pianificazione e assegnazioni', perms: ['gestione', 'condomini', 'impostazioni', 'backup'] },
