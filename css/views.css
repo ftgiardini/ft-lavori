@@ -239,10 +239,6 @@
 .menu-row .row-ic .ic { width: 19px; height: 19px; }
 .menu-row.danger strong, .menu-row.danger .row-ic { color: var(--red); }
 .menu-row.danger .row-ic { background: var(--red-50); }
-.install-steps { counter-reset: s; list-style: none; margin: 0; padding: 0; }
-.install-steps li { counter-increment: s; display: flex; gap: 12px; align-items: flex-start; padding: 8px 0; }
-.install-steps li::before { content: counter(s); width: 26px; height: 26px; border-radius: 50%; background: var(--green-100); color: var(--green-700); font-weight: 800; font-size: 13px; display: grid; place-items: center; flex: none; }
-.install-steps .ic { width: 17px; height: 17px; vertical-align: -3px; color: var(--green-700); }
 .install-banner { display: flex; align-items: center; gap: 12px; padding: 12px 12px 12px 14px; border-radius: 16px; background: var(--green-900); color: #DDEFD8; margin-bottom: 16px; font-size: 13.5px; }
 .install-banner img { width: 38px; height: 38px; border-radius: 10px; flex: none; }
 .install-banner strong { color: #fff; display: block; font-size: 14.5px; }
