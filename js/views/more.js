@@ -70,16 +70,7 @@ export function render() {
     </div>` : ''}
 
     <div class="section">
-      <div class="section-head"><h2>Installa sull’iPhone</h2></div>
-      <div class="card">
-        <ol class="install-steps">
-          <li><span>Apri questa pagina con <b>Safari</b></span></li>
-          <li><span>Tocca il pulsante <b>Condividi</b> ${icon('share')} in basso</span></li>
-          <li><span>Scegli <b>Aggiungi alla schermata Home</b></span></li>
-          <li><span>Tocca <b>Aggiungi</b>: l’icona FT Lavori comparirà tra le app</span></li>
-        </ol>
-        <p class="small muted" style="margin-top:8px">Da computer (Chrome o Edge) si può installare con l’icona ${icon('download')} a destra nella barra degli indirizzi, oppure semplicemente aggiungerla ai preferiti.</p>
-      </div>
+      ${installSection()}
     </div>
 
     ${store.can('backup') ? `
@@ -111,6 +102,7 @@ export function render() {
         const ds = el.dataset;
         if ('logout' in ds) window.dispatchEvent(new CustomEvent('app:logout'));
         if ('password' in ds) openPasswordSheet();
+        if ('shareLink' in ds) shareAppLink();
         if ('type' in ds && store.can('impostazioni')) openTypeSheet(ds.type);
         if (ds.wd !== undefined && store.can('impostazioni')) {
           const d = Number(ds.wd);
@@ -146,6 +138,67 @@ export function render() {
       });
     },
   };
+}
+
+const APP_LINK = () => location.href.split('#')[0];
+
+/** Istruzioni per installare l'app: diverse per iPhone, Android e computer; nascoste se è già installata */
+function installSection() {
+  const installed = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  const android = /android/i.test(navigator.userAgent);
+  const shareBtn = `<button class="btn btn-ghost btn-block" style="margin-top:12px" data-share-link>${icon('share')}Invia il link dell’app alla squadra</button>`;
+  if (installed) {
+    return `
+      <div class="section-head"><h2>App installata</h2></div>
+      <div class="card">
+        <div class="row">${icon('check')}<span>Stai usando FT Lavori dalla schermata Home. Gli aggiornamenti arrivano da soli.</span></div>
+        ${shareBtn}
+      </div>`;
+  }
+  if (android) {
+    return `
+      <div class="section-head"><h2>Installa sul telefono</h2></div>
+      <div class="card">
+        <ol class="install-steps">
+          <li><span>Apri questa pagina con <b>Chrome</b></span></li>
+          <li><span>Tocca i <b>tre puntini ⋮</b> in alto a destra</span></li>
+          <li><span>Scegli <b>Installa app</b> (oppure <b>Aggiungi a schermata Home</b>)</span></li>
+          <li><span>Conferma: l’icona FT Lavori comparirà tra le app</span></li>
+        </ol>
+        ${shareBtn}
+      </div>`;
+  }
+  return `
+    <div class="section-head"><h2>Installa sull’iPhone</h2></div>
+    <div class="card">
+      <ol class="install-steps">
+        <li><span>Apri questa pagina con <b>Safari</b></span></li>
+        <li><span>Tocca <b>Condividi</b> ${icon('share')}: è in basso, oppure dentro il menu <b>•••</b> accanto all’indirizzo</span></li>
+        <li><span>Scorri e scegli <b>Aggiungi alla schermata Home</b></span></li>
+        <li><span>Lascia attivo <b>Apri come app web</b> (se compare) e tocca <b>Aggiungi</b></span></li>
+        <li><span>Da ora apri FT Lavori <b>dall’icona sulla Home</b>, non da Safari</span></li>
+      </ol>
+      <p class="small muted" style="margin-top:8px">Da computer (Chrome o Edge) si può installare con l’icona ${icon('download')} a destra nella barra degli indirizzi, oppure aggiungerla ai preferiti.</p>
+      ${shareBtn}
+    </div>`;
+}
+
+async function shareAppLink() {
+  const url = APP_LINK();
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: 'FT Lavori', text: 'App lavori FT Giardini: aprila e aggiungila alla schermata Home', url });
+      return;
+    }
+  } catch (err) {
+    if (err?.name === 'AbortError') return;
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    toast('Link copiato: incollalo su WhatsApp');
+  } catch {
+    toast(url, { duration: 10000 });
+  }
 }
 
 function exportBackup() {
