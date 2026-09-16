@@ -73,6 +73,9 @@ export function eventCard(ev, { showDate = false } = {}) {
       </button>
       ${canToggle ? `<button class="check ${ev.done ? 'checked' : ''}" data-action="toggle-event" data-id="${ev.id}" aria-label="${ev.done ? 'Segna come da fare' : 'Segna come fatto'}">${icon('check')}</button>` : ''}
     </div>
+    ${ev.kind === 'lavoro' && ev.done && (ev.doneNote || ev.doneMinutes) ? `<div class="job-actions"><span class="event-note">${ev.doneMinutes ? `${icon('clock')} ${esc(fmtDuration(ev.doneMinutes))}` : ''}${ev.doneNote ? ` “${esc(ev.doneNote)}”` : ''}</span></div>` : ''}
+    ${ev.kind === 'lavoro' && canToggle && !ev.done ? `<div class="job-actions"><button class="btn btn-primary btn-sm" data-action="toggle-event" data-id="${ev.id}">${icon('check')}Fatto · registra</button></div>` : ''}
+    ${ev.kind === 'lavoro' && canToggle && ev.done && !ev.doneNote && !ev.doneMinutes ? `<div class="job-actions"><button class="link-btn" data-action="report-event" data-id="${ev.id}">${icon('note')}Scrivi cosa hai fatto e quanto tempo</button></div>` : ''}
   </article>`;
 }
 

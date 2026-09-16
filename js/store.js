@@ -457,8 +457,58 @@ export function toggleEventDone(id) {
   const ev = eventById(id);
   if (!ev || !canToggleEvent(ev)) return;
   ev.done = !ev.done;
-  if (ev.done) { ev.doneAt = Date.now(); ev.doneBy = currentUser()?.id || null; } else { delete ev.doneAt; delete ev.doneBy; }
+  if (ev.done) {
+    ev.doneAt = Date.now();
+    ev.doneBy = currentUser()?.id || null;
+  } else {
+    delete ev.doneAt;
+    delete ev.doneBy;
+    // si azzerano (non si cancellano) così anche online i dati spariscono
+    if ('doneMinutes' in ev) { ev.doneMinutes = 0; ev.doneNote = ''; ev.doneTeam = []; }
+  }
   commit();
+}
+
+/** Tempo impiegato, cosa è stato fatto e chi c'era, per un lavoro extra o un appuntamento fatto */
+export function registerEventDone(id, { minutes, note, team } = {}) {
+  const ev = eventById(id);
+  if (!ev || !ev.done || !canToggleEvent(ev)) return;
+  ev.doneMinutes = Math.max(0, Math.round(Number(minutes) || 0));
+  ev.doneNote = String(note || '').trim();
+  ev.doneTeam = [...new Set(team || [])];
+  commit();
+}
+
+/**
+ * Registro di tutto quello che è stato fatto (interventi nei condomini e lavori extra),
+ * dal più recente. Serve a Nicolas, Martina e Alessandro per tenere d'occhio la squadra.
+ * @returns {Array<{kind, id, date, at, by, team, minutes, note, title, where, color, reported}>}
+ */
+export function workLog({ from = null, to = null, memberId = null } = {}) {
+  const out = [];
+  for (const j of state.jobs) {
+    if (!isDone(j)) continue;
+    const info = doneInfo(j);
+    const type = typeById(j.typeId);
+    out.push({
+      kind: 'job', id: j.id, date: j.date, at: info.at, by: info.by, team: info.team.length ? info.team : [info.by].filter(Boolean),
+      minutes: info.minutes, note: info.note, title: type.name, where: condoById(j.condoId)?.name || '', color: type.color,
+      reported: !!(info.minutes || info.note),
+    });
+  }
+  for (const e of state.events || []) {
+    if (!e.done || e.kind !== 'lavoro') continue;
+    out.push({
+      kind: 'event', id: e.id, date: e.date, at: e.doneAt || null, by: e.doneBy || null,
+      team: e.doneTeam?.length ? e.doneTeam : [e.doneBy].filter(Boolean),
+      minutes: Number(e.doneMinutes) || 0, note: e.doneNote || '', title: e.title || 'Lavoro extra', where: e.place || '', color: '#7B61C9',
+      reported: !!(e.doneMinutes || e.doneNote),
+    });
+  }
+  return out
+    .filter((x) => (!from || x.date >= from) && (!to || x.date <= to))
+    .filter((x) => !memberId || x.by === memberId || x.team.includes(memberId))
+    .sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.at || 0) - (a.at || 0));
 }
 
 /** Il database online ha già la tabella degli appuntamenti? (serve rieseguire schema.sql una volta) */
@@ -649,6 +699,38 @@ export function addPayments({ condoId, title, amount, dueDate, repeat = 0, count
       title: String(title || '').trim() + (n > 1 ? ` (rata ${i + 1} di ${n})` : ''),
       amount: Math.round((Number(amount) || 0) * 100) / 100,
       dueDate: dueDate ? (repeat ? addMonths(dueDate, repeat * i) : dueDate) : null,
+      paid: false,
+      paidDate: null,
+      method: '',
+      note: String(note || '').trim(),
+      createdBy: currentUser()?.id || null,
+      createdAt: Date.now(),
+    };
+    state.payments.push(p);
+    out.push(p);
+  }
+  commit();
+  return out;
+}
+
+/**
+ * Piano dei pagamenti di un contratto: l'importo totale diviso in rate uguali
+ * (l'ultima assorbe gli arrotondamenti), una ogni `everyMonths` mesi.
+ */
+export function addPaymentPlan({ condoId, title, total, count, firstDue, everyMonths, note = '' }) {
+  if (!can('pagamenti') || !condoById(condoId)) return [];
+  const n = Math.max(1, Math.min(36, Number(count) || 1));
+  const cents = Math.round((Number(total) || 0) * 100);
+  const each = Math.floor(cents / n);
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const amount = (i === n - 1 ? cents - each * (n - 1) : each) / 100;
+    const p = {
+      id: uid('p_'),
+      condoId,
+      title: `${String(title || 'Contratto').trim()}${n > 1 ? ` · rata ${i + 1} di ${n}` : ''}`,
+      amount,
+      dueDate: firstDue ? addMonths(firstDue, (Number(everyMonths) || 0) * i) : null,
       paid: false,
       paidDate: null,
       method: '',

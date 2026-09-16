@@ -3,8 +3,8 @@ import * as store from '../store.js';
 import { icon } from '../icons.js';
 import { openSheet, toast, confirmDialog, rerender, isWide } from '../ui.js';
 import { sectionHead, emptyState } from '../components.js';
-import { PAYMENT_REPEATS, PAYMENT_METHODS } from '../data.js';
-import { esc, todayISO, fmtEuro, fmtDateNum, relDay, diffDays, plural } from '../utils.js';
+import { PAYMENT_METHODS } from '../data.js';
+import { esc, todayISO, fmtEuro, fmtDateNum, relDay, diffDays, addMonths, plural } from '../utils.js';
 
 const DB_UPDATE_MSG = 'Per usare i pagamenti va aggiornato il database: riesegui schema.sql su Supabase (vedi guida).';
 let tab = 'aperti';
@@ -82,7 +82,7 @@ export function condoPaymentsSection(condo) {
   const late = list.filter((p) => store.paymentStatus(p) === 'scaduto');
   return `
     <div class="section">
-      ${sectionHead('Pagamenti', `<button class="link-btn" data-add-payment="${condo.id}">${icon('plus')}Aggiungi</button>`)}
+      ${sectionHead('Pagamenti', `<button class="link-btn" data-add-payment="${condo.id}">${icon('plus')}Nuovo pagamento</button>`)}
       <div class="card">
         <div class="pay-sum">
           <div><small>Da incassare</small><strong>${fmtEuro(tot.open)}</strong></div>
@@ -92,7 +92,7 @@ export function condoPaymentsSection(condo) {
         ${contactButtons(condo, { remind: late })}
       </div>
       ${list.length ? `<div class="card card-flush divided" style="margin-top:10px">${list.map((p) => paymentRow(p, { showCondo: false })).join('')}</div>`
-        : `<div class="week-empty">Nessuna rata inserita. <button class="link-btn" data-add-payment="${condo.id}">${icon('plus')}Aggiungi</button></div>`}
+        : `<div class="week-empty">Nessun pagamento inserito. <button class="link-btn" data-add-payment="${condo.id}">${icon('plus')}Imposta il piano dei pagamenti</button></div>`}
     </div>`;
 }
 
@@ -163,7 +163,7 @@ export function render() {
     </div>
     <div class="toolbar">
       <label class="search">${icon('search')}<input class="input" type="search" placeholder="Cerca condominio o amministratore" value="${esc(query)}" data-search></label>
-      <button class="btn btn-primary" data-new>${icon('plus')}Nuova rata</button>
+      <button class="btn btn-primary" data-new>${icon('plus')}Nuovo pagamento</button>
     </div>`;
 
   let body;
@@ -185,6 +185,7 @@ export function render() {
         </a>
         <div class="small muted" style="margin:8px 0 2px">${[c.phone, c.email].filter(Boolean).map(esc).join(' · ') || 'Nessun contatto: aggiungilo in Modifica condominio'}</div>
         ${contactButtons(c, { remind: late })}
+        ${store.paymentsOfCondo(c.id).length ? '' : `<button class="btn btn-soft btn-block btn-sm" style="margin-top:8px" data-add-payment="${c.id}">${icon('plus')}Imposta il piano dei pagamenti</button>`}
       </div>`;
     }).join('')}</div>` : `<div class="card">${emptyState('building', 'Nessun cliente', 'I clienti sono i condomini inseriti.')}</div>`;
   } else {
@@ -216,11 +217,19 @@ export function render() {
 
   const html = `
     <div class="page-head"><h1>Pagamenti</h1><p>Rate dei clienti, incassi e solleciti</p></div>
-    ${!available ? `<div class="plan-warn">${icon('alert')}<span>${DB_UPDATE_MSG}</span></div>` : ''}
+    <details class="card help-card" ${store.getState().payments?.length ? '' : 'open'}>
+      <summary>${icon('note')}<b>Come si gestiscono i pagamenti</b></summary>
+      <ol>
+        <li><b>Per ogni condominio crea il piano:</b> tocca “Nuovo pagamento” → “Contratto a rate”, scrivi l’importo del contratto e in quante rate lo paga. L’app crea le rate con le scadenze.</li>
+        <li><b>Quando arriva un pagamento</b> tocca il cerchio ✓ accanto alla rata e scegli data e modo (bonifico, contanti…).</li>
+        <li><b>Le rate non pagate dopo la scadenza diventano rosse</b> e compaiono in “Scaduti”: tocca <b>Sollecita</b> per mandare all’amministratore il promemoria su WhatsApp, già scritto.</li>
+        <li>In <b>Clienti</b> trovi tutti i condomini con telefono, email e situazione dei pagamenti.</li>
+      </ol>
+    </details>    ${!available ? `<div class="plan-warn">${icon('alert')}<span>${DB_UPDATE_MSG}</span></div>` : ''}
     ${kpis}
     ${tabs}
     ${body}
-    <a class="fab" href="#" data-new aria-label="Nuova rata">${icon('plus')}</a>`;
+    <a class="fab" href="#" data-new aria-label="Nuovo pagamento">${icon('plus')}</a>`;
 
   return {
     title: 'Pagamenti',
@@ -250,75 +259,147 @@ export function render() {
 
 // ---------- Moduli ----------
 
-/** Nuova rata / modifica */
-export function openPaymentForm({ id = null, condoId = '' } = {}) {
+/**
+ * Nuovo pagamento (piano del contratto diviso in rate, oppure pagamento singolo) o modifica di una rata.
+ * @param {object} o
+ * @param {string} o.id       rata da modificare
+ * @param {string} o.condoId  condominio già scelto
+ * @param {string} o.mode     'piano' (predefinito) · 'singolo'
+ */
+export function openPaymentForm({ id = null, condoId = '', mode = 'piano' } = {}) {
   if (!store.can('pagamenti')) return;
   if (!store.paymentsAvailable()) { toast(DB_UPDATE_MSG, { duration: 8000 }); return; }
   const condos = [...store.getState().condos].sort((a, b) => a.name.localeCompare(b.name));
   if (!condos.length) { toast('Aggiungi prima un condominio'); return; }
   const p = id ? store.paymentById(id) : null;
-  let repeat = 0;
+  if (p) mode = 'singolo';
+  let rates = 4;
+
+  const condoOf = () => store.condoById(s.el.querySelector('#pf-condo').value);
+  const firstDefault = () => {
+    const c = store.condoById(p?.condoId || condoId || condos[0].id);
+    return c?.contractStart && c.contractStart > todayISO() ? c.contractStart : todayISO();
+  };
 
   const s = openSheet({
-    title: p ? 'Modifica pagamento' : 'Nuova rata',
-    subtitle: p ? '' : 'Quanto deve pagare il cliente e quando',
+    title: p ? 'Modifica pagamento' : 'Nuovo pagamento',
+    subtitle: p ? esc(store.condoById(p.condoId)?.name || '') : 'Cosa deve pagare il cliente e quando',
     body: `
-      <div class="field"><label for="pf-condo">Condominio</label>
-        <select id="pf-condo" class="select" ${p ? 'disabled' : ''}>${condos.map((c) => `<option value="${c.id}" ${c.id === (p?.condoId || condoId) ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>
-      <div class="field"><label for="pf-title">Descrizione</label>
-        <input id="pf-title" class="input" value="${esc(p?.title || '')}" placeholder="Es. Canone manutenzione verde, Fattura 12/2026" autocomplete="off"></div>
-      <div class="field-row">
-        <div class="field"><label for="pf-amount">Importo (€)</label>
-          <input id="pf-amount" class="input" type="number" inputmode="decimal" min="0" step="0.01" value="${p ? p.amount : ''}" placeholder="0,00"></div>
-        <div class="field"><label for="pf-due">${p ? 'Scadenza' : 'Prima scadenza'}</label>
-          <input id="pf-due" class="input" type="date" value="${esc(p?.dueDate || todayISO())}"></div>
-      </div>
       ${p ? '' : `
-      <div class="field"><span class="label">Si ripete?</span>
-        <div class="pick" data-repeat>${PAYMENT_REPEATS.map(([n, l]) => `<button class="${n === repeat ? 'on' : ''}" data-rep="${n}">${l}</button>`).join('')}</div>
+      <div class="seg seg-wide" style="margin-bottom:14px">
+        <button class="${mode === 'piano' ? 'on' : ''}" data-mode="piano">Contratto a rate</button>
+        <button class="${mode === 'singolo' ? 'on' : ''}" data-mode="singolo">Pagamento singolo</button>
+      </div>`}
+      <div class="field" ${p ? 'hidden' : ''}><label for="pf-condo">Condominio (cliente)</label>
+        <select id="pf-condo" class="select">${condos.map((c) => `<option value="${c.id}" ${c.id === (p?.condoId || condoId) ? 'selected' : ''}>${esc(c.name)}${c.adminName ? ` · ${esc(c.adminName)}` : ''}</option>`).join('')}</select></div>
+
+      <div data-piano ${mode === 'piano' ? '' : 'hidden'}>
+        <div class="field"><label for="pp-total">Importo totale del contratto (€)</label>
+          <input id="pp-total" class="input input-big" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Es. 1200"></div>
+        <div class="field"><span class="label">In quante rate lo paga</span>
+          <div class="pick" data-rates style="margin-top:6px">${[1, 2, 3, 4, 6, 12].map((n) => `<button class="${n === rates ? 'on' : ''}" data-rate="${n}">${n === 1 ? 'Unica soluzione' : `${n} rate`}</button>`).join('')}</div>
+          <p class="hint" data-every-hint></p></div>
+        <div class="field"><label for="pp-first">Scadenza della prima rata</label>
+          <input id="pp-first" class="input" type="date" value="${firstDefault()}"></div>
+        <div class="field"><label for="pp-title">Descrizione</label>
+          <input id="pp-title" class="input" value="Contratto manutenzione verde ${todayISO().slice(0, 4)}" autocomplete="off"></div>
+        <div class="plan-preview" data-preview></div>
       </div>
-      <div class="field" data-count-wrap hidden><label for="pf-count">Quante rate</label>
-        <input id="pf-count" class="input" type="number" inputmode="numeric" min="2" max="36" value="12" style="max-width:120px">
-        <p class="hint">Ogni rata ha lo stesso importo. Es. canone annuale diviso in 12 rate mensili.</p></div>`}
+
+      <div data-singolo ${mode === 'singolo' ? '' : 'hidden'}>
+        <div class="field"><label for="pf-title">Descrizione</label>
+          <input id="pf-title" class="input" value="${esc(p?.title || '')}" placeholder="Es. Fattura 12/2026, lavoro extra potatura" autocomplete="off"></div>
+        <div class="field-row">
+          <div class="field"><label for="pf-amount">Importo (€)</label>
+            <input id="pf-amount" class="input input-big" type="number" inputmode="decimal" min="0" step="0.01" value="${p ? p.amount : ''}" placeholder="0,00"></div>
+          <div class="field"><label for="pf-due">Scadenza</label>
+            <input id="pf-due" class="input" type="date" value="${esc(p?.dueDate || todayISO())}"></div>
+        </div>
+      </div>
+
       <div class="field"><label for="pf-note">Note</label>
         <textarea id="pf-note" class="textarea" rows="2" placeholder="Es. numero fattura, accordi con l'amministratore">${esc(p?.note || '')}</textarea></div>
       ${p ? `<button class="link-btn" style="color:var(--red);margin-top:12px" data-del>${icon('trash')}Elimina questo pagamento</button>` : ''}`,
     footer: `<button class="btn btn-ghost" data-close>Annulla</button><button class="btn btn-primary" data-ok>${icon('check')}Salva</button>`,
   });
   const $ = (q) => s.el.querySelector(q);
+  const everyMonths = () => (rates === 1 ? 0 : Math.max(1, Math.floor(12 / rates)));
+
+  const drawPreview = () => {
+    if (mode !== 'piano' || p) return;
+    const total = Number(String($('#pp-total').value).replace(',', '.')) || 0;
+    const first = $('#pp-first').value;
+    const every = everyMonths();
+    $('[data-every-hint]').textContent = rates === 1 ? 'Un solo pagamento alla scadenza.' : `Una rata ogni ${every === 1 ? 'mese' : `${every} mesi`}.`;
+    if (!total || !first) { $('[data-preview]').innerHTML = '<p class="hint">Scrivi l’importo per vedere le rate.</p>'; return; }
+    const each = Math.floor((total * 100) / rates) / 100;
+    const last = Math.round((total - each * (rates - 1)) * 100) / 100;
+    $('[data-preview]').innerHTML = `
+      <span class="label">Le rate che verranno create</span>
+      <div class="card card-flush divided" style="margin-top:6px;box-shadow:none;border:1px solid var(--line)">
+        ${Array.from({ length: rates }, (_, i) => `<div class="plan-rate"><span>Rata ${i + 1}</span><span class="muted">${fmtDateNum(addMonths(first, every * i))}</span><strong>${fmtEuro(i === rates - 1 ? last : each)}</strong></div>`).join('')}
+      </div>`;
+  };
 
   s.el.addEventListener('click', async (e) => {
     const b = e.target.closest('button');
     if (!b) return;
-    if (b.dataset.rep !== undefined) {
-      repeat = Number(b.dataset.rep);
-      s.el.querySelectorAll('[data-rep]').forEach((x) => x.classList.toggle('on', x === b));
-      $('[data-count-wrap]').hidden = !repeat;
+    const ds = b.dataset;
+    if (ds.mode) {
+      mode = ds.mode;
+      s.el.querySelectorAll('[data-mode]').forEach((x) => x.classList.toggle('on', x === b));
+      $('[data-piano]').hidden = mode !== 'piano';
+      $('[data-singolo]').hidden = mode !== 'singolo';
+      drawPreview();
     }
-    if ('del' in b.dataset && await confirmDialog({ title: 'Eliminare il pagamento?', message: `“${esc(p.title)}” di ${fmtEuro(p.amount)} verrà tolto.`, confirmText: 'Elimina', danger: true })) {
+    if (ds.rate) {
+      rates = Number(ds.rate);
+      s.el.querySelectorAll('[data-rate]').forEach((x) => x.classList.toggle('on', x === b));
+      drawPreview();
+    }
+    if ('del' in ds && await confirmDialog({ title: 'Eliminare il pagamento?', message: `“${esc(p.title)}” di ${fmtEuro(p.amount)} verrà tolto.`, confirmText: 'Elimina', danger: true })) {
       store.deletePayment(p.id);
       s.close();
       toast('Pagamento eliminato');
     }
-    if ('ok' in b.dataset) {
+    if ('ok' in ds) {
+      const note = $('#pf-note').value;
+      if (mode === 'piano' && !p) {
+        const total = Number(String($('#pp-total').value).replace(',', '.'));
+        const first = $('#pp-first').value;
+        const title = $('#pp-title').value.trim() || 'Contratto';
+        if (!(total > 0)) { toast('Scrivi l’importo totale del contratto'); $('#pp-total').focus(); return; }
+        if (!first) { toast('Scegli la scadenza della prima rata'); return; }
+        const made = store.addPaymentPlan({ condoId: condoOf().id, title, total, count: rates, firstDue: first, everyMonths: everyMonths(), note });
+        toast(made.length > 1 ? `Creato il piano: ${made.length} rate per ${fmtEuro(total)}` : `Pagamento inserito: ${fmtEuro(total)}`);
+        s.close();
+        return;
+      }
       const title = $('#pf-title').value.trim();
       const amount = Number(String($('#pf-amount').value).replace(',', '.'));
       const dueDate = $('#pf-due').value || null;
-      const note = $('#pf-note').value;
       if (!title) { toast('Scrivi la descrizione'); $('#pf-title').focus(); return; }
       if (!(amount > 0)) { toast('Scrivi l’importo'); $('#pf-amount').focus(); return; }
       if (p) {
         store.updatePayment(p.id, { title, amount, dueDate, note });
         toast('Pagamento salvato');
       } else {
-        const count = repeat ? Number($('#pf-count').value) || 1 : 1;
-        const made = store.addPayments({ condoId: $('#pf-condo').value, title, amount, dueDate, repeat, count, note });
-        toast(made.length > 1 ? `${made.length} rate inserite da ${fmtEuro(amount)}` : `Rata inserita: ${fmtEuro(amount)}`);
+        store.addPayments({ condoId: condoOf().id, title, amount, dueDate, note });
+        toast(`Pagamento inserito: ${fmtEuro(amount)}`);
       }
       s.close();
     }
   });
-  setTimeout(() => (p ? null : $('#pf-title'))?.focus(), 250);
+  s.el.addEventListener('input', drawPreview);
+  s.el.addEventListener('change', (e) => {
+    if (e.target.matches('#pf-condo') && !p) {
+      const c = condoOf();
+      $('#pp-first').value = c?.contractStart && c.contractStart > todayISO() ? c.contractStart : todayISO();
+      drawPreview();
+    }
+  });
+  drawPreview();
+  setTimeout(() => (p ? null : $(mode === 'piano' ? '#pp-total' : '#pf-title'))?.focus(), 250);
 }
 
 /** Segna come pagato: data dell'incasso e modo */

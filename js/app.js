@@ -3,7 +3,7 @@ import * as store from './store.js';
 import { icon } from './icons.js';
 import { avatar, memberSub } from './components.js';
 import { toggleDone, openPostponeSheet, openJobSheet, openDoneSheet } from './views/job-sheet.js';
-import { openEventSheet } from './views/event-sheet.js';
+import { openEventSheet, toggleEvent, openEventReport } from './views/event-sheet.js';
 import * as home from './views/home.js';
 import * as today from './views/today.js';
 import * as calendar from './views/calendar.js';
@@ -13,6 +13,7 @@ import * as more from './views/more.js';
 import * as team from './views/team.js';
 import * as quotes from './views/quotes.js';
 import * as payments from './views/payments.js';
+import * as worklog from './views/worklog.js';
 import { ROLES } from './data.js';
 import { esc, currentSeasonRange, isIOS } from './utils.js';
 import { wideMQ, toast, confirmDialog } from './ui.js';
@@ -40,6 +41,7 @@ function resolve(admin) {
       return { tab: 'condomini', view: renderForm(b) };
     case 'squadra': return store.can('squadra') ? { tab: 'squadra', view: team.render() } : start();
     case 'preventivi': return store.can('gestione') ? { tab: 'preventivi', view: quotes.render() } : start();
+    case 'registro': return store.can('gestione') ? { tab: 'registro', view: worklog.render() } : start();
     case 'pagamenti': return store.can('pagamenti') ? { tab: 'pagamenti', view: payments.render() } : start();
     case 'altro': return { tab: 'altro', view: more.render() };
     default: return start();
@@ -184,6 +186,7 @@ function render() {
     ['calendario', 'Calendario', 'calendar', 0],
     store.can('condomini') && ['condomini', 'Condomini', 'building', 0],
     // sul telefono "Squadra" sta in Altro, così il menu in basso resta leggibile
+    store.can('gestione') && ['registro', 'Registro lavori', 'list', 0, 'desktop-tab'],
     store.can('squadra') && ['squadra', 'Squadra', 'users', 0, 'desktop-tab'],
     !accounting && store.can('pagamenti') && ['pagamenti', 'Pagamenti', 'file', latePay, 'desktop-tab'],
     store.can('gestione') && ['preventivi', 'Crea preventivo', 'edit', 0, '', 'Preventivo'],
@@ -229,7 +232,7 @@ function render() {
 
 // lo scorrimento lo gestisce l'app (come nelle app vere), non il browser
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
-const ROOT_ROUTES = /^#\/(oggi|calendario|condomini|squadra|preventivi|pagamenti|altro)?$/;
+const ROOT_ROUTES = /^#\/(oggi|calendario|condomini|squadra|preventivi|pagamenti|registro|altro)?$/;
 const scrollMemo = new Map();
 let ignoreScrollUntil = 0;
 window.addEventListener('scroll', () => {
@@ -317,10 +320,11 @@ document.addEventListener('click', (e) => {
   }
   if (action === 'postpone') openPostponeSheet(id);
   if (action === 'register-done') openDoneSheet(id);
+  if (action === 'report-event') openEventReport(id);
   if (action === 'open-job') openJobSheet(id);
   if (action === 'open-event') openEventSheet(id);
   if (action === 'toggle-event') {
-    store.toggleEventDone(id);
+    toggleEvent(id);
     document.querySelectorAll(`.check[data-id="${id}"]`).forEach((b) => b.classList.add('pop'));
   }
 });
@@ -406,7 +410,7 @@ if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
 
 // Sul telefono l'app installata resta aperta in sottofondo per giorni e non ricarica i file:
 // ogni volta che torna in primo piano controlla se è uscita una versione nuova e si aggiorna.
-const APP_VERSION = 'v21';
+const APP_VERSION = 'v22';
 let updating = false;
 async function checkForUpdate({ force = false } = {}) {
   if (updating || !navigator.onLine || !location.protocol.startsWith('http')) return;

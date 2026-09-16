@@ -11,6 +11,7 @@ import { openEventForm } from './event-sheet.js';
 import { paymentRow, contactButtons, bindPaymentClicks, openPaymentForm } from './payments.js';
 import { ROLES } from '../data.js';
 import * as today from './today.js';
+import { summaryCard } from './worklog.js';
 import { esc, todayISO, fmtLong, fmtDateNum, fmtEuro, fmtDuration, relDay, startOfWeek, addDays, currentSeasonRange, fmtShort, parseISO, plural } from '../utils.js';
 
 let showAllOverdue = false;
@@ -50,7 +51,7 @@ export function render() {
   const actions = amministra
     ? `
     <div class="hero-actions">
-      <button class="btn btn-primary" data-new-payment>${icon('plus')}Nuova rata</button>
+      <button class="btn btn-primary" data-new-payment>${icon('plus')}Nuovo pagamento</button>
       <a class="btn btn-soft" href="#/pagamenti">${icon('file')}Pagamenti e clienti</a>
       <button class="btn btn-ghost" data-new-event>${icon('bell')}Nuovo appuntamento</button>
       <a class="btn btn-ghost" href="#/calendario">${icon('calendar')}Calendario</a>
@@ -317,31 +318,28 @@ export function render() {
     ? state.team.filter((m) => m.field).map((m) => ({ m, s: store.memberStats(m.id, weekFrom, weekTo) }))
     : [];
   // Registro dei lavori fatti: cosa hanno scritto i giardinieri (giorno, tempo, cosa hanno fatto)
-  const doneLog = store.recentActivity(40).filter(({ entry }) => entry.type === 'fatto').slice(0, wide ? 10 : 6);
+  const doneLog = store.workLog({ from: addDays(t, -14), to: t }).slice(0, wide ? 10 : 6);
   const doneLogSec = `
     <div class="section" id="registro">
-      ${sectionHead('Lavori fatti dalla squadra', store.can('squadra') ? '<a class="link-btn" href="#/squadra">Squadra</a>' : '')}
-      <p class="small muted" style="margin:-4px 2px 10px">Quello che i giardinieri registrano quando spuntano un lavoro.</p>
+      ${sectionHead('Lavori fatti dalla squadra', '<a class="link-btn" href="#/registro">Registro completo</a>')}
+      <p class="small muted" style="margin:-4px 2px 10px">Quello che i giardinieri registrano quando toccano “Fatto · registra” (ultimi 14 giorni).</p>
       ${doneLog.length ? `
       <div class="card card-flush divided">
-        ${doneLog.map(({ job, entry }) => {
-          const who = store.memberById(entry.by);
-          const type = store.typeById(job.typeId);
-          const condo = store.condoById(job.condoId);
-          const team = (entry.team || []).map((x) => store.memberById(x)?.name).filter(Boolean);
+        ${doneLog.map((x) => {
+          const who = store.memberById(x.by);
+          const names = x.team.map((id) => store.memberById(id)?.name).filter(Boolean);
           return `
-          <button class="activity-row" data-action="open-job" data-id="${job.id}">
+          <button class="activity-row" data-action="${x.kind === 'job' ? 'open-job' : 'open-event'}" data-id="${x.id}">
             ${who ? avatar(who, 'sm') : '<span class="avatar avatar-sm" style="--c:#B5BDB6">?</span>'}
             <span class="grow" style="min-width:0">
-              <span class="activity-text"><b>${esc(type.name)}</b> · ${esc(condo?.name || '')}</span>
-              <span class="small" style="display:block">${entry.note ? `“${esc(entry.note)}”` : '<span class="is-amber">Non ha scritto cosa ha fatto</span>'}</span>
-              <span class="small muted" style="display:block">${esc(job.date ? fmtShort(job.date) : '')}${entry.minutes ? ` · ${esc(fmtDuration(entry.minutes))}` : ' · tempo non indicato'} · ${esc(team.length ? team.join(', ') : who?.name || '')}</span>
+              <span class="activity-text"><b>${esc(x.title)}</b>${x.where ? ` · ${esc(x.where)}` : ''}</span>
+              <span class="small" style="display:block">${x.note ? `“${esc(x.note)}”` : '<span class="is-amber">Non ha scritto cosa ha fatto</span>'}</span>
+              <span class="small muted" style="display:block">${esc(x.date ? fmtShort(x.date) : '')} · ${x.minutes ? esc(fmtDuration(x.minutes)) : 'tempo non indicato'} · ${esc(names.join(', ') || who?.name || '')}</span>
             </span>
           </button>`;
         }).join('')}
-      </div>` : '<div class="week-empty">Ancora nessun lavoro registrato.</div>'}
+      </div>` : '<div class="week-empty">Ancora nessun lavoro registrato negli ultimi 14 giorni.</div>'}
     </div>`;
-
   const crewSec = crew.length ? `
     <div class="section">
       ${sectionHead('La squadra oggi', '<a class="link-btn" href="#/squadra">Dettagli</a>')}
@@ -362,19 +360,19 @@ export function render() {
       <div class="home-head">${hello}${actions}</div>
       ${kpisAmm}
       <div class="cols">
-        <div class="cols-main">${paySec}${checksSec}${deadlinesSec}</div>
+        <div class="cols-main">${summaryCard()}${paySec}${checksSec}${deadlinesSec}</div>
         <aside class="cols-side">${eventsSec}${weekAgendaSec}${remainingSec}</aside>
       </div>`
-      : `${hello}${kpisAmm}${actions}${paySec}${checksSec}${deadlinesSec}${eventsSec}${weekAgendaSec}${remainingSec}`)
+      : `${hello}${kpisAmm}${actions}${summaryCard()}${paySec}${checksSec}${deadlinesSec}${eventsSec}${weekAgendaSec}${remainingSec}`)
     : (wide
       ? `
       <div class="home-head">${hello}${actions}</div>
       ${kpis}
       <div class="cols">
-        <div class="cols-main">${doneLogSec}${overdueSec}${unscheduledSec}${remainingSec}${deadlinesSec}</div>
+        <div class="cols-main">${summaryCard()}${doneLogSec}${overdueSec}${unscheduledSec}${remainingSec}${deadlinesSec}</div>
         <aside class="cols-side">${eventsSec}${crewSec}${todaySec}${seasonSec}</aside>
       </div>`
-      : `${hello}${kpis}${actions}${eventsSec}${crewSec}${doneLogSec}${overdueSec}${unscheduledSec}${remainingSec}${deadlinesSec}${seasonSec}`);
+      : `${hello}${kpis}${summaryCard()}${actions}${doneLogSec}${eventsSec}${crewSec}${overdueSec}${unscheduledSec}${remainingSec}${deadlinesSec}${seasonSec}`);
 
   return {
     title: 'Home',

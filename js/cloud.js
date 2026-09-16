@@ -79,12 +79,19 @@ export const TABLES = [
   {
     // appuntamenti, promemoria e lavori extra (tabella aggiunta dopo: se manca l'app continua a funzionare)
     name: 'events', key: 'events', optional: true, order: ['date', 'id'],
-    toRow: (e) => ({
-      id: e.id, kind: e.kind || 'appuntamento', title: e.title || '', date: orNull(e.date),
-      start_time: orNull(e.time), end_time: orNull(e.endTime), place: e.place || '', note: e.note || '',
-      assignees: e.assignees || [], done: !!e.done, done_at: e.doneAt ?? null, done_by: e.doneBy ?? null,
-      created_by: e.createdBy ?? null, created_at: e.createdAt ?? null,
-    }),
+    toRow: (e) => {
+      const row = {
+        id: e.id, kind: e.kind || 'appuntamento', title: e.title || '', date: orNull(e.date),
+        start_time: orNull(e.time), end_time: orNull(e.endTime), place: e.place || '', note: e.note || '',
+        assignees: e.assignees || [], done: !!e.done, done_at: e.doneAt ?? null, done_by: e.doneBy ?? null,
+        created_by: e.createdBy ?? null, created_at: e.createdAt ?? null,
+      };
+      // dati del lavoro fatto: si inviano solo se ci sono (colonne aggiunte dopo)
+      if ('doneMinutes' in e) row.done_minutes = e.doneMinutes || null;
+      if ('doneNote' in e) row.done_note = e.doneNote || null;
+      if ('doneTeam' in e) row.done_team = e.doneTeam?.length ? e.doneTeam : null;
+      return row;
+    },
     fromRow: (r) => {
       const e = {
         id: r.id, kind: r.kind, title: r.title || '', date: r.date, time: r.start_time || '', endTime: r.end_time || '',
@@ -93,6 +100,9 @@ export const TABLES = [
       };
       if (r.done_at != null) e.doneAt = Number(r.done_at);
       if (r.done_by) e.doneBy = r.done_by;
+      if (r.done_minutes != null) e.doneMinutes = r.done_minutes;
+      if (r.done_note != null) e.doneNote = r.done_note;
+      if (r.done_team != null) e.doneTeam = r.done_team;
       return e;
     },
   },

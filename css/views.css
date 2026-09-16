@@ -447,3 +447,35 @@
 .check-item i { width: 8px; height: 8px; border-radius: 50%; background: var(--c, var(--muted)); flex: none; }
 .check-item .small { flex: none; }
 .job-actions { align-items: center; flex-wrap: wrap; }
+
+/* Registro lavori */
+.log-summary { display: flex; align-items: center; gap: 12px; margin: 12px 0; color: var(--text); border: 1.5px solid var(--green-100); }
+.log-summary strong { display: block; color: var(--ink); font-size: 15.5px; }
+.log-summary small { display: block; color: var(--muted); font-size: 12.5px; }
+.log-summary > .ic:last-child { color: #BAC3BB; flex: none; }
+.person-totals { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
+.person-total { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 14px; background: #fff; box-shadow: var(--shadow); text-align: left; border: 1.5px solid transparent; }
+.person-total.on { border-color: var(--green); background: var(--green-50); }
+.person-total strong { display: block; color: var(--ink); font-size: 14.5px; }
+.person-total small { display: block; color: var(--muted); font-size: 12px; }
+.person-total .avatar .ic { width: 15px; height: 15px; color: #fff; }
+.log-row { display: flex; align-items: flex-start; gap: 12px; width: 100%; padding: 12px 16px; text-align: left; color: var(--text); }
+.log-row:hover { background: #FAFCF9; }
+.log-date { flex: none; width: 42px; text-align: center; background: #F1F4F0; border-radius: 10px; padding: 5px 0; }
+.log-date strong { display: block; font-size: 17px; font-weight: 800; color: var(--ink); line-height: 1.1; }
+.log-date small { font-size: 10.5px; color: var(--muted); font-weight: 700; text-transform: uppercase; }
+.log-title { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; font-size: 14px; color: var(--ink); }
+.log-title i { width: 9px; height: 9px; border-radius: 50%; background: var(--c); flex: none; }
+.log-note { display: block; font-size: 14px; margin: 3px 0; color: var(--text); white-space: pre-wrap; }
+.log-row .small .ic { width: 13px; height: 13px; vertical-align: -2px; }
+
+/* Pagamenti: guida e piano rate */
+.help-card summary { display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none; color: var(--green-700); }
+.help-card summary::-webkit-details-marker { display: none; }
+.help-card summary .ic { width: 18px; height: 18px; }
+.help-card ol { margin: 10px 0 0 18px; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 13.5px; color: var(--text); }
+.input-big { font-size: 20px; font-weight: 800; }
+.plan-rate { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: center; padding: 9px 12px; font-size: 14px; }
+.plan-rate strong { color: var(--ink); min-width: 90px; text-align: right; }
+.event .job-actions .event-note { -webkit-line-clamp: 3; }
+.event .job-actions .ic { width: 13px; height: 13px; vertical-align: -2px; }

@@ -142,6 +142,10 @@ create table if not exists public.events (
   updated_at timestamptz not null default now()
 );
 create index if not exists events_date_idx on public.events (date);
+-- registrazione del lavoro fatto (tempo impiegato, cosa è stato fatto, chi c'era)
+alter table public.events add column if not exists done_minutes int;
+alter table public.events add column if not exists done_note text;
+alter table public.events add column if not exists done_team text[];
 
 -- ---------- Pagamenti dei clienti (rate, incassi) ----------
 create table if not exists public.payments (

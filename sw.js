@@ -1,6 +1,6 @@
 // Service worker: l'app funziona anche senza connessione (in cantiere).
 // Quando si modificano i file, aumentare la versione per aggiornare la cache sui telefoni.
-const VERSION = 'ftg-lavori-v21';
+const VERSION = 'ftg-lavori-v22';
 
 const SHELL = [
   './vendor/jspdf.umd.min.js',
@@ -15,6 +15,7 @@ const SHELL = [
   './js/cloud.js',
   './js/views/team.js',
   './js/views/payments.js',
+  './js/views/worklog.js',
   './css/responsive.css',
   './css/mobile-app.css',
   './',

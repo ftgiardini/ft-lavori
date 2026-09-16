@@ -34,38 +34,51 @@ function remainingMsg(job) {
   return stats.remaining === 0 ? 'Tutti quelli del contratto sono stati fatti.' : `Ne mancano ${stats.remaining} su ${stats.total}.`;
 }
 
-/** Registrazione del lavoro fatto: in che giorno, quanto tempo, cosa è stato fatto, chi c'era */
-export function openDoneSheet(id) {
-  const job = store.jobById(id);
-  if (!job) return;
-  const type = store.typeById(job.typeId);
-  const condo = store.condoById(job.condoId);
-  const info = store.doneInfo(job) || {};
-  const me = store.currentUser();
-  const team = store.fieldTeam();
-  let date = info.date || job.date || todayISO();
-  let minutes = info.minutes || 0;
-  let who = info.team?.length ? [...info.team] : (job.assignees?.length ? [...job.assignees] : me ? [me.id] : []);
+const toMin = (hhmm) => { const [h, m] = String(hhmm || '').split(':').map(Number); return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : null; };
 
-  const peopleRow = () => `
-    ${team.map((m) => `<button class="${who.includes(m.id) ? 'on' : ''}" data-who="${m.id}">${avatar(m, 'xs')}${esc(m.name)}</button>`).join('')}`;
+/**
+ * Pannello "Lavoro fatto" (uguale per interventi nei condomini e lavori extra):
+ * giorno, dalle/alle o durata, chi ha lavorato, cosa è stato fatto.
+ * @param {object} o
+ * @param {string} o.subtitle   cosa e dove
+ * @param {string} o.message    riga sotto "Segnato come fatto"
+ * @param {object} o.info       dati già registrati { date, minutes, note, team }
+ * @param {string[]} o.people   chi proporre come squadra
+ * @param {boolean} o.askDate   chiedere il giorno
+ * @param {Function} o.onSave   ({ date, minutes, note, team }) => void
+ * @param {Function} o.onSkip   chiusura con "Solo fatto"
+ */
+export function openReportSheet({ subtitle = '', message = '', info = {}, people = [], askDate = true, onSave, onSkip }) {
+  const team = store.fieldTeam();
+  let date = info.date || todayISO();
+  let minutes = info.minutes || 0;
+  let who = info.team?.length ? [...info.team] : [...people];
+
+  const peopleRow = () => team.map((m) => `<button class="${who.includes(m.id) ? 'on' : ''}" data-who="${m.id}">${avatar(m, 'xs')}${esc(m.name)}</button>`).join('');
   const durRow = () => DURATIONS.map((n) => `<button class="${minutes === n ? 'on' : ''}" data-min="${n}">${esc(fmtDuration(n))}</button>`).join('');
 
   const s = openSheet({
     title: 'Lavoro fatto',
-    subtitle: `${esc(type.name)}${condo ? ` · ${esc(condo.name)}` : ''}`,
+    subtitle,
     body: `
-      <div class="done-hero">${icon('check')}<div><strong>Segnato come fatto</strong><small>${esc(remainingMsg(job) || 'Lavoro in più, fuori contratto.')}</small></div></div>
-      <div class="field" style="margin-top:16px">
+      <div class="done-hero">${icon('check')}<div><strong>Segnato come fatto</strong><small>${esc(message)}</small></div></div>
+      <p class="small muted" style="margin:12px 2px 0">Scrivi quanto tempo ci avete messo e cosa avete fatto: Nicolas e Martina lo vedono nel registro dei lavori.</p>
+      ${askDate ? `
+      <div class="field" style="margin-top:14px">
         <label for="dn-date">In che giorno l'avete fatto</label>
         <input id="dn-date" class="input" type="date" value="${esc(date)}" max="${todayISO()}">
-      </div>
+      </div>` : ''}
       <div class="field">
         <span class="label">Quanto tempo ci avete messo</span>
-        <div class="pick" data-durations style="margin-top:6px">${durRow()}</div>
+        <div class="field-row" style="margin-top:6px">
+          <div class="field" style="margin:0"><label for="dn-from" class="small">Dalle</label><input id="dn-from" class="input" type="time" data-time></div>
+          <div class="field" style="margin:0"><label for="dn-to" class="small">Alle</label><input id="dn-to" class="input" type="time" data-time></div>
+        </div>
+        <p class="hint" style="margin:8px 2px 6px">Oppure tocca la durata:</p>
+        <div class="pick" data-durations>${durRow()}</div>
         <div class="row" style="margin-top:8px;gap:8px">
-          <input class="input" type="number" inputmode="numeric" min="0" max="900" step="5" placeholder="Minuti" value="${minutes || ''}" data-minutes style="max-width:140px">
-          <span class="small muted">minuti in tutto (per tutta la squadra)</span>
+          <input class="input" type="number" inputmode="numeric" min="0" max="900" step="5" placeholder="Minuti" value="${minutes || ''}" data-minutes style="max-width:130px">
+          <span class="small muted" data-min-label>${minutes ? esc(fmtDuration(minutes)) : 'minuti in tutto'}</span>
         </div>
       </div>
       <div class="field">
@@ -75,36 +88,66 @@ export function openDoneSheet(id) {
       <div class="field">
         <label for="dn-note">Cosa avete fatto</label>
         <textarea id="dn-note" class="textarea" rows="3" placeholder="Es. sfalcio completo, siepe davanti all'ingresso, portato via il materiale">${esc(info.note || '')}</textarea>
-        <p class="hint">Lo vedono Nicolas e Martina nella scheda del lavoro e nelle attività della squadra.</p>
       </div>`,
-    footer: `<button class="btn btn-ghost" data-skip>Solo fatto</button><button class="btn btn-primary" data-ok>${icon('check')}Registra</button>`,
+    footer: `<button class="btn btn-ghost" data-skip>Dopo</button><button class="btn btn-primary" data-ok>${icon('check')}Registra</button>`,
   });
+  const $ = (q) => s.el.querySelector(q);
+  const setMinutes = (n) => {
+    minutes = Math.max(0, Math.round(Number(n) || 0));
+    $('[data-durations]').innerHTML = durRow();
+    $('[data-minutes]').value = minutes || '';
+    $('[data-min-label]').textContent = minutes ? fmtDuration(minutes) : 'minuti in tutto';
+  };
 
   s.el.addEventListener('click', (e) => {
     const b = e.target.closest('button');
     if (!b) return;
     const ds = b.dataset;
-    if (ds.min) {
-      minutes = minutes === Number(ds.min) ? 0 : Number(ds.min);
-      s.el.querySelector('[data-durations]').innerHTML = durRow();
-      s.el.querySelector('[data-minutes]').value = minutes || '';
-    }
+    if (ds.min) setMinutes(minutes === Number(ds.min) ? 0 : Number(ds.min));
     if (ds.who) {
       who = who.includes(ds.who) ? who.filter((x) => x !== ds.who) : [...who, ds.who];
-      s.el.querySelector('[data-people]').innerHTML = peopleRow();
+      $('[data-people]').innerHTML = peopleRow();
     }
-    if ('skip' in ds) { s.close(); toast(`Fatto: ${type.name}`, { actionText: 'Annulla', onAction: () => store.undoDone(id) }); }
+    if ('skip' in ds) { s.close(); onSkip?.(); }
     if ('ok' in ds) {
-      date = s.el.querySelector('#dn-date').value || date;
-      const typed = Number(s.el.querySelector('[data-minutes]').value) || 0;
-      store.registerDone(id, { date, minutes: typed || minutes, note: s.el.querySelector('#dn-note').value, team: who });
+      const note = $('#dn-note').value.trim();
+      if (!minutes && !note) { toast('Scrivi almeno quanto tempo ci avete messo o cosa avete fatto'); return; }
+      onSave({ date: askDate ? $('#dn-date').value || date : undefined, minutes, note, team: who });
       s.close();
-      toast(`Registrato: ${type.name}${typed || minutes ? ` · ${fmtDuration(typed || minutes)}` : ''}`);
     }
   });
-  s.el.querySelector('[data-minutes]').addEventListener('input', (e) => {
-    minutes = Math.max(0, Number(e.target.value) || 0);
-    s.el.querySelector('[data-durations]').innerHTML = durRow();
+  s.el.addEventListener('input', (e) => {
+    if (e.target.matches('[data-minutes]')) {
+      minutes = Math.max(0, Number(e.target.value) || 0);
+      $('[data-durations]').innerHTML = durRow();
+      $('[data-min-label]').textContent = minutes ? fmtDuration(minutes) : 'minuti in tutto';
+    }
+    if (e.target.matches('[data-time]')) {
+      const a = toMin($('#dn-from').value);
+      const b = toMin($('#dn-to').value);
+      if (a !== null && b !== null && b > a) setMinutes(b - a);
+    }
+  });
+}
+
+/** Registrazione di un intervento nel condominio */
+export function openDoneSheet(id) {
+  const job = store.jobById(id);
+  if (!job) return;
+  const type = store.typeById(job.typeId);
+  const condo = store.condoById(job.condoId);
+  const info = store.doneInfo(job) || {};
+  const me = store.currentUser();
+  openReportSheet({
+    subtitle: `${esc(type.name)}${condo ? ` · ${esc(condo.name)}` : ''}`,
+    message: remainingMsg(job) || 'Lavoro in più, fuori contratto.',
+    info: { ...info, date: info.date || job.date },
+    people: job.assignees?.length ? job.assignees : me ? [me.id] : [],
+    onSave: (data) => {
+      store.registerDone(id, data);
+      toast(`Registrato: ${type.name}${data.minutes ? ` · ${fmtDuration(data.minutes)}` : ''}`);
+    },
+    onSkip: () => toast(`Fatto: ${type.name} · puoi scrivere i dettagli anche dopo`, { actionText: 'Annulla', onAction: () => store.undoDone(id) }),
   });
 }
 

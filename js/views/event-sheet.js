@@ -4,8 +4,8 @@ import { icon } from '../icons.js';
 import { openSheet, toast, confirmDialog } from '../ui.js';
 import { avatar, eventTimeLabel } from '../components.js';
 import { EVENT_KINDS, eventKind } from '../data.js';
-import { esc, todayISO, fmtLong, fmtTime, mapsUrl } from '../utils.js';
-import { openAddJobSheet } from './job-sheet.js';
+import { esc, todayISO, fmtLong, fmtTime, fmtDuration, mapsUrl } from '../utils.js';
+import { openAddJobSheet, openReportSheet } from './job-sheet.js';
 
 const DB_UPDATE_MSG = 'Per usare gli appuntamenti va aggiornato il database: riesegui schema.sql su Supabase (vedi guida).';
 
@@ -147,6 +147,35 @@ export function openEventForm({ id = null, date = todayISO(), kind = 'appuntamen
   if (!existing) setTimeout(() => $('#ev-title')?.focus(), 250);
 }
 
+/** Spunta un appuntamento / lavoro extra; per i lavori extra chiede tempo e cosa è stato fatto */
+export function toggleEvent(id) {
+  const ev = store.eventById(id);
+  if (!ev || !store.canToggleEvent(ev)) return;
+  const wasDone = ev.done;
+  store.toggleEventDone(id);
+  if (wasDone) { toast('Spunta tolta'); return; }
+  if (ev.kind === 'lavoro') openEventReport(id);
+  else toast('Segnato come fatto', { actionText: 'Annulla', onAction: () => store.toggleEventDone(id) });
+}
+
+export function openEventReport(id) {
+  const ev = store.eventById(id);
+  if (!ev) return;
+  const me = store.currentUser();
+  openReportSheet({
+    subtitle: `${esc(ev.title || 'Lavoro extra')}${ev.place ? ` · ${esc(ev.place)}` : ''}`,
+    message: 'Lavoro extra del calendario.',
+    askDate: false,
+    info: { minutes: ev.doneMinutes || 0, note: ev.doneNote || '', team: ev.doneTeam || [] },
+    people: ev.assignees?.length ? ev.assignees.filter((x) => store.memberById(x)?.field) : me ? [me.id] : [],
+    onSave: (data) => {
+      store.registerEventDone(id, data);
+      toast(`Registrato${data.minutes ? `: ${fmtDuration(data.minutes)}` : ''}`);
+    },
+    onSkip: () => toast('Fatto · puoi scrivere i dettagli anche dopo', { actionText: 'Annulla', onAction: () => store.toggleEventDone(id) }),
+  });
+}
+
 /** Dettaglio (per tutti) */
 export function openEventSheet(id) {
   const ev = store.eventById(id);
@@ -167,6 +196,12 @@ export function openEventSheet(id) {
         ${ev.place ? `<div class="info-row">${icon('pin')}<div class="grow"><span class="label">Dove</span><span class="value">${esc(ev.place)}</span></div><a class="btn btn-soft btn-sm" href="${mapsUrl(ev.place)}" target="_blank" rel="noopener">${icon('nav')}Naviga</a></div>` : ''}
         <div class="info-row">${icon('users')}<div class="grow"><span class="label">Per</span><span class="value row wrap" style="gap:6px">${people.length ? people.map((m) => `<span class="row" style="gap:5px">${avatar(m, 'xs')}${esc(m.name)}</span>`).join('') : 'Tutta la squadra'}</span></div></div>
         ${ev.done ? `<div class="info-row">${icon('check')}<div class="grow"><span class="label">Fatto</span><span class="value">${doneBy ? esc(doneBy.name) + ' · ' : ''}${ev.doneAt ? esc(fmtTime(ev.doneAt)) : ''}</span></div></div>` : ''}
+        ${ev.done && ev.kind === 'lavoro' ? `
+        <div class="info-row">${icon('note')}<div class="grow"><span class="label">Cosa è stato fatto</span>
+          <span class="value" style="font-weight:500">${ev.doneNote ? esc(ev.doneNote) : '<span class="muted">Non registrato</span>'}</span>
+          <span class="small muted" style="display:block;margin-top:3px">${ev.doneMinutes ? `Tempo: ${esc(fmtDuration(ev.doneMinutes))}` : 'Tempo non indicato'}${ev.doneTeam?.length ? ` · con ${ev.doneTeam.map((x) => esc(store.memberById(x)?.name || '')).join(', ')}` : ''}</span></div>
+          ${canToggle ? `<button class="btn btn-soft btn-sm" data-report>${ev.doneNote || ev.doneMinutes ? 'Correggi' : 'Aggiungi'}</button>` : ''}
+        </div>` : ''}
       </div>
       ${ev.note ? `<div class="field" style="margin-top:16px"><span class="label">Note</span><p class="event-note-full">${esc(ev.note)}</p></div>` : ''}
       ${creator ? `<p class="small muted" style="margin-top:14px">Inserito da ${esc(creator.name)}${ev.createdAt ? ` · ${esc(fmtTime(ev.createdAt))}` : ''}</p>` : ''}`,
@@ -174,15 +209,18 @@ export function openEventSheet(id) {
       ${admin ? `<button class="btn btn-ghost" data-edit>${icon('edit')}Modifica</button>` : ''}
       ${canToggle ? (ev.done
         ? `<button class="btn btn-ghost" data-toggle>${icon('x')}Togli la spunta</button>`
-        : `<button class="btn btn-primary" data-toggle>${icon('check')}Fatto</button>`) : ''}
+        : `<button class="btn btn-primary" data-toggle>${icon('check')}${ev.kind === 'lavoro' ? 'Fatto · registra' : 'Fatto'}</button>`) : ''}
       ${!admin && !canToggle ? '<button class="btn btn-ghost" data-close>Chiudi</button>' : ''}`,
   });
   s.el.addEventListener('click', (e) => {
     if (e.target.closest('[data-edit]')) { s.close(); setTimeout(() => openEventForm({ id }), 230); }
     if (e.target.closest('[data-toggle]')) {
-      store.toggleEventDone(id);
       s.close();
-      toast(store.eventById(id)?.done ? 'Segnato come fatto' : 'Spunta tolta');
+      setTimeout(() => toggleEvent(id), 230);
+    }
+    if (e.target.closest('[data-report]')) {
+      s.close();
+      setTimeout(() => openEventReport(id), 230);
     }
   });
 }

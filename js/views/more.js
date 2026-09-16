@@ -39,6 +39,15 @@ export function render() {
       </a>
     </div>` : ''}
 
+    ${store.can('gestione') ? `
+    <div class="section">
+      <a class="card card-flush menu-row" href="#/registro">
+        <span class="row-ic">${icon('list')}</span>
+        <span class="grow"><strong>Registro lavori</strong><small>Cosa ha fatto la squadra, in quanto tempo e con quali note</small></span>
+        ${icon('right')}
+      </a>
+    </div>` : ''}
+
     ${store.can('pagamenti') ? `
     <div class="section">
       <a class="card card-flush menu-row" href="#/pagamenti">
