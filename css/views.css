@@ -402,3 +402,47 @@
 .job-hero { display: flex; align-items: center; gap: 14px; }
 .job-hero h3 { font-size: 20px; font-weight: 800; }
 .job-hero p { color: var(--muted); font-size: 13.5px; }
+
+/* ---------- Pagamenti e clienti (contabilità) ---------- */
+.kpi-money { font-size: 22px; white-space: nowrap; }
+.seg-wide { display: flex; width: 100%; }
+.seg-wide button { flex: 1; padding-left: 6px; padding-right: 6px; }
+.pay-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px 10px 16px; border-left: 4px solid transparent; }
+.pay-row.is-scaduto { border-left-color: var(--red); }
+.pay-row.is-in-scadenza { border-left-color: var(--amber); }
+.pay-row.is-pagato .pay-amount { color: var(--muted); text-decoration: line-through; text-decoration-thickness: 1.5px; }
+.pay-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; text-align: left; }
+.pay-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pay-text strong { color: var(--ink); font-weight: 800; font-size: 15px; }
+.pay-meta { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 3px; }
+.pay-amount { flex: none; font-size: 16px; font-weight: 800; color: var(--ink); white-space: nowrap; }
+.pay-row.is-scaduto .pay-amount { color: var(--red); }
+.pay-sum { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.pay-sum > div { background: #F4F7F3; border-radius: 12px; padding: 8px 10px; min-width: 0; }
+.pay-sum small { display: block; font-size: 11.5px; color: var(--muted); font-weight: 700; }
+.pay-sum strong { display: block; font-size: 16px; font-weight: 800; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pay-sum .is-red { background: var(--red-50); }
+.pay-sum .is-red strong { color: var(--red); }
+.is-red-text { color: var(--red); font-weight: 800; white-space: nowrap; }
+.pay-big { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 16px; border-radius: 16px; background: #F4F7F3; }
+.pay-big strong { font-size: 28px; font-weight: 800; color: var(--ink); }
+.pay-big.is-scaduto { background: var(--red-50); }
+.pay-big.is-scaduto strong { color: var(--red); }
+.pay-big.is-pagato { background: var(--green-50); }
+.contact-btns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 10px; }
+.contact-btns .btn { justify-content: center; padding-left: 6px; padding-right: 6px; }
+.btn.disabled { opacity: .4; pointer-events: none; }
+.client-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.client-grid > .card { margin: 0; }
+.client-card > a.row { color: var(--text); gap: 10px; }
+@media (min-width: 700px) { .client-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.sub-head { font-size: 14px; font-weight: 800; color: var(--ink); margin: 16px 2px 8px; }
+.check-list { margin-top: 10px; }
+.check-group { padding: 10px 0 6px; }
+.check-group + .check-group { border-top: 1px solid var(--line); }
+.check-group h4 { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 800; color: var(--ink); padding: 0 16px 4px; }
+.check-group h4 .ic { width: 15px; height: 15px; color: var(--amber); }
+.check-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 16px; text-align: left; color: var(--text); font-size: 13.5px; }
+.check-item:hover { background: #FAFCF9; }
+.check-item i { width: 8px; height: 8px; border-radius: 50%; background: var(--c, var(--muted)); flex: none; }
+.check-item .small { flex: none; }

@@ -8,9 +8,10 @@ import { rerender, isWide } from '../ui.js';
 import { jobCard, eventCard, progressBar, sectionHead, typeIcon, emptyState, avatar } from '../components.js';
 import { openAddJobSheet } from './job-sheet.js';
 import { openEventForm } from './event-sheet.js';
+import { paymentRow, contactButtons, bindPaymentClicks, openPaymentForm } from './payments.js';
 import { ROLES } from '../data.js';
 import * as today from './today.js';
-import { esc, todayISO, fmtLong, fmtDateNum, startOfWeek, addDays, currentSeasonRange, fmtShort, parseISO, plural } from '../utils.js';
+import { esc, todayISO, fmtLong, fmtDateNum, fmtEuro, fmtDuration, relDay, startOfWeek, addDays, currentSeasonRange, fmtShort, parseISO, plural } from '../utils.js';
 
 let showAllOverdue = false;
 
@@ -49,10 +50,10 @@ export function render() {
   const actions = amministra
     ? `
     <div class="hero-actions">
-      <button class="btn btn-primary" data-new-event>${icon('bell')}Nuovo appuntamento</button>
-      <a class="btn btn-soft" href="#/calendario">${icon('calendar')}Calendario</a>
-      <a class="btn btn-ghost" href="#/preventivi">${icon('file')}Crea preventivo</a>
-      <a class="btn btn-ghost" href="#/condomini">${icon('building')}Condomini</a>
+      <button class="btn btn-primary" data-new-payment>${icon('plus')}Nuova rata</button>
+      <a class="btn btn-soft" href="#/pagamenti">${icon('file')}Pagamenti e clienti</a>
+      <button class="btn btn-ghost" data-new-event>${icon('bell')}Nuovo appuntamento</button>
+      <a class="btn btn-ghost" href="#/calendario">${icon('calendar')}Calendario</a>
     </div>`
     : `
     <div class="hero-actions">
@@ -99,32 +100,82 @@ export function render() {
       </div>` : `<div class="week-empty">Nessun contratto in scadenza nei prossimi 4 mesi.</div>`}
     </div>`;
 
+  // ---------- Alessandro: contabilità, clienti e controllo dei lavori ----------
+  const payTot = store.can('pagamenti') ? store.paymentTotals() : null;
+  const toCall = store.can('pagamenti') ? store.clientsToCall() : [];
+  const dueSoon = store.can('pagamenti') ? store.paymentsList('aperti').filter((p) => store.paymentStatus(p) === 'in-scadenza') : [];
+  const checks = store.workChecks();
+  const checkCount = checks.late.length + checks.noReport.length + checks.endedOpen.length + checks.unscheduled.length;
+
   const kpisAmm = `
     <div class="kpis">
-      <button class="kpi kpi-hero ${expired ? 'kpi-red' : ''}" data-scroll="scadenze" style="text-align:left">
+      <a class="kpi kpi-hero" href="#/pagamenti">
         <span class="kpi-ic">${icon('file')}</span>
+        <span class="kpi-num kpi-money">${fmtEuro(payTot?.open || 0)}</span>
+        <span class="kpi-label">Da incassare</span>
+        <span class="kpi-sub">${plural(payTot?.openCount || 0, 'rata aperta', 'rate aperte')}</span>
+      </a>
+      <button class="kpi ${payTot?.lateCount ? 'kpi-red' : ''}" data-scroll="solleciti" style="text-align:left">
+        <span class="kpi-ic">${icon('alert')}</span>
+        <span class="kpi-num kpi-money">${fmtEuro(payTot?.late || 0)}</span>
+        <span class="kpi-label">Pagamenti scaduti</span>
+        <span class="kpi-sub">${plural(toCall.length, 'cliente da sollecitare', 'clienti da sollecitare')}</span>
+      </button>
+      <button class="kpi ${checkCount ? 'kpi-amber' : ''}" data-scroll="controlli" style="text-align:left">
+        <span class="kpi-ic">${icon('list')}</span>
+        <span class="kpi-num">${checkCount}</span>
+        <span class="kpi-label">Lavori da controllare</span>
+        <span class="kpi-sub">${checkCount ? 'ritardi e dati mancanti' : 'tutto in ordine'}</span>
+      </button>
+      <button class="kpi ${expired ? 'kpi-red' : ''}" data-scroll="scadenze" style="text-align:left">
+        <span class="kpi-ic">${icon('calendar')}</span>
         <span class="kpi-num">${expiring + expired}</span>
         <span class="kpi-label">Contratti in scadenza</span>
         <span class="kpi-sub">${expired ? `${expired} già scaduti` : 'entro 4 mesi'}</span>
       </button>
-      <a class="kpi" href="#/calendario">
-        <span class="kpi-ic">${icon('bell')}</span>
-        <span class="kpi-num">${store.eventsBetween(t, addDays(t, 7)).filter((ev) => !ev.done).length}</span>
-        <span class="kpi-label">Appuntamenti</span>
-        <span class="kpi-sub">prossimi 7 giorni</span>
-      </a>
-      <a class="kpi" href="#/condomini">
-        <span class="kpi-ic">${icon('building')}</span>
-        <span class="kpi-num">${state.condos.length}</span>
-        <span class="kpi-label">Condomini</span>
-        <span class="kpi-sub">sotto contratto</span>
-      </a>
-      <button class="kpi ${overdue.length ? 'kpi-red' : ''}" data-scroll="overdue" style="text-align:left">
-        <span class="kpi-ic">${icon('alert')}</span>
-        <span class="kpi-num">${overdue.length}</span>
-        <span class="kpi-label">In ritardo</span>
-        <span class="kpi-sub">lavori da riprogrammare</span>
-      </button>
+    </div>`;
+
+  const paySec = !store.can('pagamenti') ? '' : `
+    <div class="section" id="solleciti">
+      ${sectionHead('Pagamenti da sollecitare', '<a class="link-btn" href="#/pagamenti">Tutti i pagamenti</a>')}
+      ${!store.paymentsAvailable() ? `<div class="plan-warn">${icon('alert')}<span>Per usare i pagamenti va rieseguito schema.sql su Supabase (vedi guida).</span></div>` : ''}
+      ${toCall.length ? `<div class="client-grid">${toCall.map((x) => `
+        <div class="card client-card">
+          <a class="row" href="#/condomini/${x.condo.id}">
+            <span class="grow" style="min-width:0"><strong class="strong ellipsis" style="display:block">${esc(x.condo.name)}</strong>
+            <span class="small muted">${esc(x.condo.adminName || 'Amministratore non inserito')} · ${plural(x.count, 'rata', 'rate')} · dal ${fmtDateNum(x.oldest)}</span></span>
+            <strong class="is-red-text">${fmtEuro(x.amount)}</strong>
+          </a>
+          ${contactButtons(x.condo, { remind: store.paymentsOfCondo(x.condo.id).filter((p) => store.paymentStatus(p) === 'scaduto') })}
+        </div>`).join('')}</div>`
+        : '<div class="week-empty">Nessun pagamento scaduto: tutti i clienti sono in regola.</div>'}
+      ${dueSoon.length ? `
+        <h3 class="sub-head">In scadenza nei prossimi 15 giorni</h3>
+        <div class="card card-flush divided">${dueSoon.slice(0, 8).map((p) => paymentRow(p)).join('')}</div>` : ''}
+    </div>`;
+
+  const jobLink = (j, extra = '') => {
+    const type = store.typeById(j.typeId);
+    const condo = store.condoById(j.condoId);
+    return `<button class="check-item" data-action="open-job" data-id="${j.id}"><i style="--c:${type.color}"></i><span class="grow ellipsis"><b>${esc(type.name)}</b> · ${esc(condo?.name || '')}</span><span class="small muted">${extra || esc(relDay(j.date))}</span></button>`;
+  };
+  const checksSec = `
+    <div class="section" id="controlli">
+      ${sectionHead('Controllo dei lavori')}
+      <div class="card">
+        <div class="pay-sum">
+          <div><small>Fatti ultimi 30 giorni</small><strong>${checks.doneMonth}</strong></div>
+          <div><small>Ore registrate</small><strong>${checks.minutesMonth ? fmtDuration(checks.minutesMonth) : '—'}</strong></div>
+          <div class="${checks.late.length ? 'is-red' : ''}"><small>In ritardo</small><strong>${checks.late.length}</strong></div>
+        </div>
+      </div>
+      ${checkCount ? `
+      <div class="card card-flush check-list">
+        ${checks.late.length ? `<div class="check-group"><h4>${icon('alert')}In ritardo, non ancora fatti (${checks.late.length})</h4>${checks.late.slice(0, 5).map((j) => jobLink(j)).join('')}</div>` : ''}
+        ${checks.noReport.length ? `<div class="check-group"><h4>${icon('note')}Fatti senza dire cosa e in quanto tempo (${checks.noReport.length})</h4>${checks.noReport.slice(0, 5).map((j) => jobLink(j, esc(store.memberById(j.doneBy)?.name || ''))).join('')}</div>` : ''}
+        ${checks.endedOpen.length ? `<div class="check-group"><h4>${icon('file')}Contratto finito con lavori mancanti (${checks.endedOpen.length})</h4>${checks.endedOpen.map((c) => `<a class="check-item" href="#/condomini/${c.id}"><i></i><span class="grow ellipsis"><b>${esc(c.name)}</b></span><span class="small muted">mancano ${store.condoStats(c).remaining}</span></a>`).join('')}</div>` : ''}
+        ${checks.unscheduled.length ? `<div class="check-group"><h4>${icon('calendar')}Senza data (${checks.unscheduled.length})</h4>${checks.unscheduled.slice(0, 5).map((j) => jobLink(j)).join('')}</div>` : ''}
+      </div>` : '<div class="week-empty">Nessun problema nei lavori: tutto in ordine.</div>'}
     </div>`;
 
   const kpis = `
@@ -285,10 +336,10 @@ export function render() {
       <div class="home-head">${hello}${actions}</div>
       ${kpisAmm}
       <div class="cols">
-        <div class="cols-main">${deadlinesSec}${eventsSec}${overdueSec}${remainingSec}</div>
-        <aside class="cols-side">${weekAgendaSec}${unscheduledSec}${seasonSec}</aside>
+        <div class="cols-main">${paySec}${checksSec}${deadlinesSec}</div>
+        <aside class="cols-side">${eventsSec}${weekAgendaSec}${remainingSec}</aside>
       </div>`
-      : `${hello}${kpisAmm}${actions}${deadlinesSec}${eventsSec}${weekAgendaSec}${overdueSec}${unscheduledSec}${remainingSec}${seasonSec}`)
+      : `${hello}${kpisAmm}${actions}${paySec}${checksSec}${deadlinesSec}${eventsSec}${weekAgendaSec}${remainingSec}`)
     : (wide
       ? `
       <div class="home-head">${hello}${actions}</div>
@@ -303,12 +354,15 @@ export function render() {
     title: 'Home',
     html,
     mount(root) {
+      if (amministra) bindPaymentClicks(root);
       root.addEventListener('click', (e) => {
         const sc = e.target.closest('[data-scroll]');
         if (sc) document.getElementById(sc.dataset.scroll)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         if (e.target.closest('[data-toggle-overdue]')) { showAllOverdue = !showAllOverdue; rerender(); }
         if (e.target.closest('[data-add-job]')) openAddJobSheet();
         if (e.target.closest('[data-new-event]')) openEventForm({ date: todayISO() });
+        if (e.target.closest('[data-new-payment]')) openPaymentForm();
+        if (e.target.closest('a.disabled')) e.preventDefault();
       });
     },
   };

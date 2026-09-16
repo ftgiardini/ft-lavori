@@ -96,6 +96,20 @@ export const TABLES = [
       return e;
     },
   },
+  {
+    // pagamenti dei clienti: li leggono solo titolare e amministrazione (per gli altri la tabella risulta vuota)
+    name: 'payments', key: 'payments', optional: true, order: ['due_date', 'id'],
+    toRow: (p) => ({
+      id: p.id, condo_id: p.condoId, title: p.title || '', amount: Number(p.amount) || 0,
+      due_date: orNull(p.dueDate), paid: !!p.paid, paid_date: orNull(p.paidDate), method: p.method || '',
+      note: p.note || '', paid_by: p.paidBy ?? null, created_by: p.createdBy ?? null, created_at: p.createdAt ?? null,
+    }),
+    fromRow: (r) => ({
+      id: r.id, condoId: r.condo_id, title: r.title || '', amount: Number(r.amount) || 0,
+      dueDate: r.due_date || null, paid: !!r.paid, paidDate: r.paid_date || null, method: r.method || '',
+      note: r.note || '', paidBy: r.paid_by || null, createdBy: r.created_by || null, createdAt: r.created_at ?? null,
+    }),
+  },
 ];
 
 // Tabelle facoltative che il database non ha ancora (es. schema.sql non rieseguito dopo un aggiornamento)

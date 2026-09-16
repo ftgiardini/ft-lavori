@@ -20,11 +20,12 @@ export const WORK_TYPES_VERSION = 3;
 //  squadra      schermata Squadra: attività dei giardinieri, persone, ruoli e password
 //  backup       scaricare il backup
 //  dati         caricare un backup, cancellare tutto
+//  pagamenti    rate e incassi dei clienti, contatti, controllo dei conti
 // "home" dice quale Home vede la persona: 'gestione' (lavori) · 'scadenze' (contratti e appuntamenti)
 export const ROLES = {
-  titolare: { label: 'Titolare', desc: 'Controllo completo: squadra, password, condomini e dati', home: 'gestione', perms: ['gestione', 'condomini', 'elimina', 'impostazioni', 'squadra', 'backup', 'dati'] },
+  titolare: { label: 'Titolare', desc: 'Controllo completo: squadra, password, condomini e dati', home: 'gestione', perms: ['gestione', 'condomini', 'elimina', 'impostazioni', 'squadra', 'backup', 'dati', 'pagamenti'] },
   ufficio: { label: 'Ufficio', desc: 'Condomini, contratti, pianificazione e assegnazioni', home: 'gestione', perms: ['gestione', 'condomini', 'impostazioni', 'backup'] },
-  amministrazione: { label: 'Amministrazione', desc: 'Scadenze dei contratti, pagamenti, calendario e appuntamenti', home: 'scadenze', perms: ['gestione', 'condomini', 'backup'] },
+  amministrazione: { label: 'Amministrazione', desc: 'Contabilità: pagamenti dei clienti, contatti, scadenze e controllo dei lavori', home: 'scadenze', perms: ['gestione', 'condomini', 'backup', 'pagamenti'] },
   giardiniere: { label: 'Giardiniere', desc: 'Calendario e spunta dei propri lavori', home: 'oggi', perms: [] },
 };
 
@@ -60,6 +61,10 @@ export const DEFAULT_PLAN = { mode: 'mensile', days: [], weekdays: [], every: 1,
 
 // Durate rapide quando si registra un lavoro fatto (minuti)
 export const DURATIONS = [30, 60, 90, 120, 180, 240, 360, 480];
+
+// Come si ripete una rata quando la si inserisce (mesi tra una rata e l'altra)
+export const PAYMENT_REPEATS = [[0, 'Una volta'], [1, 'Ogni mese'], [2, 'Ogni 2 mesi'], [3, 'Ogni 3 mesi'], [6, 'Ogni 6 mesi']];
+export const PAYMENT_METHODS = ['Bonifico', 'Contanti', 'Assegno', 'Carta', 'Altro'];
 
 export const POSTPONE_REASONS = ['Maltempo', 'Tempo insufficiente', 'Accesso non possibile', 'Mezzi / attrezzi', 'Altro'];
 

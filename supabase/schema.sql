@@ -143,6 +143,25 @@ create table if not exists public.events (
 );
 create index if not exists events_date_idx on public.events (date);
 
+-- ---------- Pagamenti dei clienti (rate, incassi) ----------
+create table if not exists public.payments (
+  id         text primary key,
+  condo_id   text not null references public.condos (id) on delete cascade,
+  title      text not null default '',
+  amount     numeric(12, 2) not null default 0,
+  due_date   date,
+  paid       boolean not null default false,
+  paid_date  date,
+  method     text not null default '',
+  note       text not null default '',
+  paid_by    text,
+  created_by text,
+  created_at bigint,
+  updated_at timestamptz not null default now()
+);
+create index if not exists payments_condo_idx on public.payments (condo_id);
+create index if not exists payments_due_idx on public.payments (due_date);
+
 -- ============================================================================
 -- Regole di accesso
 --   titolare        → tutto
@@ -167,9 +186,10 @@ alter table public.work_types enable row level security;
 alter table public.condos     enable row level security;
 alter table public.jobs       enable row level security;
 alter table public.events     enable row level security;
+alter table public.payments   enable row level security;
 
-revoke all on public.profiles, public.settings, public.work_types, public.condos, public.jobs, public.events, public.team_seed from anon;
-grant select, insert, update, delete on public.profiles, public.settings, public.work_types, public.condos, public.jobs, public.events to authenticated;
+revoke all on public.profiles, public.settings, public.work_types, public.condos, public.jobs, public.events, public.payments, public.team_seed from anon;
+grant select, insert, update, delete on public.profiles, public.settings, public.work_types, public.condos, public.jobs, public.events, public.payments to authenticated;
 
 -- Persone
 drop policy if exists "profili lettura" on public.profiles;
@@ -258,6 +278,15 @@ end $$;
 drop trigger if exists events_guard on public.events;
 create trigger events_guard before update on public.events for each row execute function public.events_guard();
 
+-- Pagamenti: solo il titolare e l'amministrazione li vedono e li modificano
+create or replace function public.can_see_payments() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce((select role in ('titolare', 'amministrazione') from public.profiles where id = auth.uid()), false)
+$$;
+drop policy if exists "pagamenti contabilita" on public.payments;
+create policy "pagamenti contabilita" on public.payments for all to authenticated
+  using (public.can_see_payments()) with check (public.can_see_payments());
+
 create or replace function public.touch_updated_at() returns trigger
 language plpgsql as $$
 begin
@@ -266,6 +295,8 @@ begin
 end $$;
 drop trigger if exists condos_touch on public.condos;
 create trigger condos_touch before update on public.condos for each row execute function public.touch_updated_at();
+drop trigger if exists payments_touch on public.payments;
+create trigger payments_touch before update on public.payments for each row execute function public.touch_updated_at();
 
 -- ============================================================================
 -- Accessi
@@ -323,7 +354,7 @@ begin
   if not exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
     create publication supabase_realtime;
   end if;
-  foreach t in array array['profiles', 'settings', 'work_types', 'condos', 'jobs', 'events'] loop
+  foreach t in array array['profiles', 'settings', 'work_types', 'condos', 'jobs', 'events', 'payments'] loop
     if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t) then
       execute format('alter publication supabase_realtime add table public.%I', t);
     end if;

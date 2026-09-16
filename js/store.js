@@ -5,7 +5,7 @@
 //  - PROVA (config.js vuoto): dati salvati solo su questo dispositivo.
 // Le schermate usano sempre le stesse funzioni, qualunque sia la modalità.
 import { DEFAULT_WORK_TYPES, DEFAULT_TEAM, ROLES, WORK_TYPES_VERSION } from './data.js';
-import { uid, todayISO, parseISO, diffDays } from './utils.js';
+import { uid, todayISO, parseISO, diffDays, addDays, addMonths } from './utils.js';
 import { planWork, normalizePlan } from './scheduler.js';
 import * as cloud from './cloud.js';
 import { LOGIN_DOMAIN } from './config.js';
@@ -79,7 +79,7 @@ export async function load() {
 }
 
 function emptyCloudState() {
-  return { settings: { workDays: [1, 2, 3, 4, 5, 6] }, team: [], workTypes: [], condos: [], jobs: [], events: [] };
+  return { settings: { workDays: [1, 2, 3, 4, 5, 6] }, team: [], workTypes: [], condos: [], jobs: [], events: [], payments: [] };
 }
 
 async function startSession(uid) {
@@ -148,6 +148,7 @@ function normalize(s) {
   s.condos ??= [];
   s.jobs ??= [];
   s.events ??= [];
+  s.payments ??= [];
   // nuovo elenco dei lavori: si tengono i vecchi tipi solo se usati in qualche contratto
   if ((s.typesVersion || 1) < WORK_TYPES_VERSION) {
     const used = new Set([...s.condos.flatMap((c) => (c.works || []).map((w) => w.typeId)), ...s.jobs.map((j) => j.typeId)]);
@@ -566,6 +567,147 @@ export function summaryByType(from, to) {
   return [...map.values()].sort((a, b) => b.total - a.total);
 }
 
+// ---------- Pagamenti dei clienti (solo titolare e amministrazione) ----------
+
+export const paymentById = (id) => (state.payments || []).find((p) => p.id === id);
+export const isPaid = (p) => !!p.paid;
+/** Il database online ha già la tabella dei pagamenti? (serve rieseguire schema.sql una volta) */
+export const paymentsAvailable = () => !isCloud || cloud.tableAvailable('payments');
+
+/** Stato di una rata: pagata · scaduta · in scadenza (entro 15 giorni) · da pagare */
+export function paymentStatus(p, t = todayISO()) {
+  if (p.paid) return 'pagato';
+  if (p.dueDate && p.dueDate < t) return 'scaduto';
+  if (p.dueDate && p.dueDate <= addDays(t, 15)) return 'in-scadenza';
+  return 'da-pagare';
+}
+
+const byDue = (a, b) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999') || (a.title || '').localeCompare(b.title || '');
+
+export function paymentsOfCondo(condoId) {
+  return (state.payments || []).filter((p) => p.condoId === condoId).sort(byDue);
+}
+
+/** Elenco filtrato: 'aperti' (da incassare) · 'scaduti' · 'pagati' · 'tutti' */
+export function paymentsList(filter = 'aperti') {
+  const t = todayISO();
+  const list = (state.payments || []).filter((p) => {
+    if (filter === 'aperti') return !p.paid;
+    if (filter === 'scaduti') return paymentStatus(p, t) === 'scaduto';
+    if (filter === 'pagati') return p.paid;
+    return true;
+  });
+  return filter === 'pagati' ? list.sort((a, b) => (b.paidDate || '').localeCompare(a.paidDate || '')) : list.sort(byDue);
+}
+
+/** Totali per la contabilità */
+export function paymentTotals(condoId = null) {
+  const t = todayISO();
+  const year = t.slice(0, 4);
+  const list = (state.payments || []).filter((p) => !condoId || p.condoId === condoId);
+  const sum = (arr) => arr.reduce((a, p) => a + (Number(p.amount) || 0), 0);
+  const open = list.filter((p) => !p.paid);
+  const late = open.filter((p) => paymentStatus(p, t) === 'scaduto');
+  const soon = open.filter((p) => paymentStatus(p, t) === 'in-scadenza');
+  const paidYear = list.filter((p) => p.paid && (p.paidDate || '').startsWith(year));
+  return {
+    open: sum(open), openCount: open.length,
+    late: sum(late), lateCount: late.length,
+    soon: sum(soon), soonCount: soon.length,
+    paidYear: sum(paidYear), paidYearCount: paidYear.length,
+    total: sum(list), paid: sum(list.filter((p) => p.paid)),
+  };
+}
+
+/** Condomini con pagamenti scaduti: i clienti da sollecitare, dal ritardo più vecchio */
+export function clientsToCall() {
+  const t = todayISO();
+  const map = new Map();
+  for (const p of state.payments || []) {
+    if (paymentStatus(p, t) !== 'scaduto') continue;
+    const e = map.get(p.condoId) || { condo: condoById(p.condoId), amount: 0, count: 0, oldest: p.dueDate };
+    e.amount += Number(p.amount) || 0;
+    e.count++;
+    if (p.dueDate < e.oldest) e.oldest = p.dueDate;
+    map.set(p.condoId, e);
+  }
+  return [...map.values()].filter((e) => e.condo).sort((a, b) => a.oldest.localeCompare(b.oldest));
+}
+
+/**
+ * Nuova rata (o più rate uguali che si ripetono).
+ * repeat = mesi tra una rata e l'altra (0 = una sola), count = quante rate
+ */
+export function addPayments({ condoId, title, amount, dueDate, repeat = 0, count = 1, note = '' }) {
+  if (!can('pagamenti') || !condoById(condoId)) return [];
+  const n = repeat ? Math.max(1, Math.min(36, Number(count) || 1)) : 1;
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const p = {
+      id: uid('p_'),
+      condoId,
+      title: String(title || '').trim() + (n > 1 ? ` (rata ${i + 1} di ${n})` : ''),
+      amount: Math.round((Number(amount) || 0) * 100) / 100,
+      dueDate: dueDate ? (repeat ? addMonths(dueDate, repeat * i) : dueDate) : null,
+      paid: false,
+      paidDate: null,
+      method: '',
+      note: String(note || '').trim(),
+      createdBy: currentUser()?.id || null,
+      createdAt: Date.now(),
+    };
+    state.payments.push(p);
+    out.push(p);
+  }
+  commit();
+  return out;
+}
+
+export function updatePayment(id, fields) {
+  const p = paymentById(id);
+  if (!p || !can('pagamenti')) return;
+  const f = { ...fields };
+  if ('amount' in f) f.amount = Math.round((Number(f.amount) || 0) * 100) / 100;
+  if ('title' in f) f.title = String(f.title || '').trim();
+  if ('note' in f) f.note = String(f.note || '').trim();
+  Object.assign(p, f);
+  commit();
+}
+
+/** Segna incassata (con data e modo) oppure di nuovo da incassare */
+export function setPaid(id, paid, { date = todayISO(), method = '' } = {}) {
+  const p = paymentById(id);
+  if (!p || !can('pagamenti')) return;
+  p.paid = !!paid;
+  p.paidDate = paid ? date : null;
+  p.method = paid ? method || p.method || '' : '';
+  p.paidBy = paid ? currentUser()?.id || null : null;
+  commit();
+}
+
+export function deletePayment(id) {
+  if (!can('pagamenti')) return;
+  state.payments = state.payments.filter((p) => p.id !== id);
+  commit();
+}
+
+/** Controlli sui lavori: cosa non torna e va verificato */
+export function workChecks() {
+  const t = todayISO();
+  const from = addDays(t, -30);
+  const done = state.jobs.filter((j) => isDone(j) && j.date >= from && j.date <= t);
+  return {
+    late: overdueJobs(),
+    unscheduled: unscheduledJobs(),
+    // fatti negli ultimi 30 giorni senza scrivere quanto tempo o cosa è stato fatto
+    noReport: done.filter((j) => { const i = doneInfo(j); return !i.minutes && !i.note; }).sort((a, b) => b.date.localeCompare(a.date)),
+    doneMonth: done.length,
+    minutesMonth: done.reduce((a, j) => a + (doneInfo(j).minutes || 0), 0),
+    // condomini con contratto finito ma interventi ancora da fare
+    endedOpen: state.condos.filter((c) => c.contractEnd && c.contractEnd < t && condoStats(c).remaining > 0),
+  };
+}
+
 // ---------- Interventi ----------
 
 function log(job, entry) {
@@ -814,6 +956,7 @@ export function replanCondo(id) {
 export function deleteCondo(id) {
   state.condos = state.condos.filter((c) => c.id !== id);
   state.jobs = state.jobs.filter((j) => j.condoId !== id);
+  state.payments = (state.payments || []).filter((p) => p.condoId !== id);
   commit();
 }
 
@@ -890,11 +1033,14 @@ export function importData(text) {
   if (Array.isArray(data.events) && cloud.tableAvailable('events')) {
     state.events = data.events.map((e) => ({ ...e, assignees: mapIds(e.assignees), doneBy: e.doneBy ? mapId(e.doneBy) : e.doneBy, createdBy: e.createdBy ? mapId(e.createdBy) : e.createdBy }));
   }
+  if (Array.isArray(data.payments) && cloud.tableAvailable('payments') && can('pagamenti')) {
+    state.payments = data.payments.filter((p) => condoIds.has(p.condoId)).map((p) => ({ ...p, createdBy: p.createdBy ? mapId(p.createdBy) : p.createdBy }));
+  }
   commit();
 }
 
 export function clearAll() {
-  state = { ...state, condos: [], jobs: [] };
+  state = { ...state, condos: [], jobs: [], payments: [] };
   if (!isCloud) state = normalize(state);
   commit();
 }

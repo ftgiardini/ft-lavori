@@ -125,6 +125,20 @@ export function fmtDuration(minutes) {
   return m ? `${h} h ${m} min` : `${h} h`;
 }
 
+const EURO = new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' });
+/** 1250.5 → "1.250,50 €" */
+export const fmtEuro = (n) => EURO.format(Number(n) || 0);
+
+/** Aggiunge mesi a una data tenendo il giorno (31 gen + 1 mese → 28 feb) */
+export function addMonths(iso, n) {
+  const d = parseISO(iso);
+  const day = d.getDate();
+  d.setDate(1);
+  d.setMonth(d.getMonth() + n);
+  d.setDate(Math.min(day, daysInMonth(d.getFullYear(), d.getMonth() + 1)));
+  return toISO(d);
+}
+
 export function uid(prefix = '') {
   return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }

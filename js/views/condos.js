@@ -5,6 +5,7 @@ import { rerender, confirmDialog, toast, isWide } from '../ui.js';
 import { jobCard, progressBar, sectionHead, typeIcon, seasonChips, avatar, emptyState } from '../components.js';
 import { openAddJobSheet } from './job-sheet.js';
 import { planLabel } from '../scheduler.js';
+import { condoPaymentsSection, bindPaymentClicks } from './payments.js';
 import { esc, todayISO, relDay, fmtDateNum, monthsLabel, mapsUrl, plural } from '../utils.js';
 
 let query = '';
@@ -235,13 +236,15 @@ export function renderDetail(id) {
       </div>
     </div>` : '';
 
+  const paymentsSec = condoPaymentsSection(condo);
+
   const html = wide
     ? `${head}
       <div class="cols">
-        <div class="cols-main">${progress}${worksSec}${upcomingSec}</div>
+        <div class="cols-main">${progress}${paymentsSec}${worksSec}${upcomingSec}</div>
         <aside class="cols-side">${quick}${info}${historySec}${adminSec}</aside>
       </div>`
-    : `${head}${quick}${progress}${worksSec}${info}${upcomingSec}${historySec}${adminSec}`;
+    : `${head}${quick}${progress}${paymentsSec}${worksSec}${info}${upcomingSec}${historySec}${adminSec}`;
 
   return {
     title: condo.name,
@@ -249,7 +252,9 @@ export function renderDetail(id) {
     backLabel: 'Condomini',
     html,
     mount(root) {
+      bindPaymentClicks(root);
       root.addEventListener('click', async (e) => {
+        if (e.target.closest('a.disabled')) e.preventDefault();
         if (e.target.closest('[data-history]')) { showAllHistory = !showAllHistory; rerender(); }
         if (e.target.closest('[data-add-job]')) openAddJobSheet({ condoId: id, date: t });
         if (e.target.closest('[data-replan]')) {

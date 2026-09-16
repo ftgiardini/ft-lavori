@@ -12,6 +12,7 @@ import { renderForm } from './views/condo-form.js';
 import * as more from './views/more.js';
 import * as team from './views/team.js';
 import * as quotes from './views/quotes.js';
+import * as payments from './views/payments.js';
 import { ROLES } from './data.js';
 import { esc, currentSeasonRange, isIOS } from './utils.js';
 import { wideMQ, toast, confirmDialog } from './ui.js';
@@ -39,6 +40,7 @@ function resolve(admin) {
       return { tab: 'condomini', view: renderForm(b) };
     case 'squadra': return store.can('squadra') ? { tab: 'squadra', view: team.render() } : start();
     case 'preventivi': return store.can('gestione') ? { tab: 'preventivi', view: quotes.render() } : start();
+    case 'pagamenti': return store.can('pagamenti') ? { tab: 'pagamenti', view: payments.render() } : start();
     case 'altro': return { tab: 'altro', view: more.render() };
     default: return start();
   }
@@ -173,14 +175,18 @@ function render() {
   const overdue = store.overdueJobs(admin || !user.field ? null : user.id).length;
 
   // Menu diverso per ruolo: giardinieri solo l'essenziale, ufficio la gestione, titolare anche la squadra
+  // Alessandro (amministrazione) non va in cantiere ogni giorno: al posto di Oggi ha i Pagamenti
+  const accounting = ROLES[user.role]?.home === 'scadenze';
+  const latePay = store.can('pagamenti') ? store.paymentTotals().lateCount : 0;
   const tabs = [
-    admin && ['home', 'Home', 'home', overdue],
-    ['oggi', 'Oggi', 'today', admin ? 0 : overdue],
+    admin && ['home', 'Home', 'home', accounting ? 0 : overdue],
+    accounting ? ['pagamenti', 'Pagamenti', 'file', latePay] : ['oggi', 'Oggi', 'today', admin ? 0 : overdue],
     ['calendario', 'Calendario', 'calendar', 0],
     store.can('condomini') && ['condomini', 'Condomini', 'building', 0],
     // sul telefono "Squadra" sta in Altro, così il menu in basso resta leggibile
     store.can('squadra') && ['squadra', 'Squadra', 'users', 0, 'desktop-tab'],
-    store.can('gestione') && ['preventivi', 'Crea preventivo', 'file', 0, '', 'Preventivo'],
+    !accounting && store.can('pagamenti') && ['pagamenti', 'Pagamenti', 'file', latePay, 'desktop-tab'],
+    store.can('gestione') && ['preventivi', 'Crea preventivo', 'edit', 0, '', 'Preventivo'],
     ['altro', 'Altro', 'more', 0],
   ].filter(Boolean);
 
@@ -223,7 +229,7 @@ function render() {
 
 // lo scorrimento lo gestisce l'app (come nelle app vere), non il browser
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
-const ROOT_ROUTES = /^#\/(oggi|calendario|condomini|squadra|preventivi|altro)?$/;
+const ROOT_ROUTES = /^#\/(oggi|calendario|condomini|squadra|preventivi|pagamenti|altro)?$/;
 const scrollMemo = new Map();
 let ignoreScrollUntil = 0;
 window.addEventListener('scroll', () => {
