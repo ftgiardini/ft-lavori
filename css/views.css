@@ -446,3 +446,4 @@
 .check-item:hover { background: #FAFCF9; }
 .check-item i { width: 8px; height: 8px; border-radius: 50%; background: var(--c, var(--muted)); flex: none; }
 .check-item .small { flex: none; }
+.job-actions { align-items: center; flex-wrap: wrap; }

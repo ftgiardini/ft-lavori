@@ -113,6 +113,7 @@ export function jobCard(job, { showDate = false, showCondo = true, actions = fal
       </button>
       <button class="check ${done ? 'checked' : ''}" data-action="toggle-done" data-id="${job.id}" aria-label="${done ? 'Segna come da fare' : 'Segna come fatto'}">${icon('check')}</button>
     </div>
-    ${actions && !done ? `<div class="job-actions"><button class="link-btn" data-action="postpone" data-id="${job.id}">${icon('redo')}Rimanda</button></div>` : ''}
+    ${actions && !done ? `<div class="job-actions"><button class="btn btn-primary btn-sm" data-action="toggle-done" data-id="${job.id}">${icon('check')}Fatto · registra</button><button class="link-btn" data-action="postpone" data-id="${job.id}">${icon('redo')}Rimanda</button></div>` : ''}
+    ${actions && done && !info?.minutes && !info?.note ? `<div class="job-actions"><button class="link-btn" data-action="register-done" data-id="${job.id}">${icon('note')}Scrivi cosa hai fatto e quanto tempo</button></div>` : ''}
   </article>`;
 }

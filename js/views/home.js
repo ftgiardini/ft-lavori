@@ -316,6 +316,32 @@ export function render() {
   const crew = store.can('squadra')
     ? state.team.filter((m) => m.field).map((m) => ({ m, s: store.memberStats(m.id, weekFrom, weekTo) }))
     : [];
+  // Registro dei lavori fatti: cosa hanno scritto i giardinieri (giorno, tempo, cosa hanno fatto)
+  const doneLog = store.recentActivity(40).filter(({ entry }) => entry.type === 'fatto').slice(0, wide ? 10 : 6);
+  const doneLogSec = `
+    <div class="section" id="registro">
+      ${sectionHead('Lavori fatti dalla squadra', store.can('squadra') ? '<a class="link-btn" href="#/squadra">Squadra</a>' : '')}
+      <p class="small muted" style="margin:-4px 2px 10px">Quello che i giardinieri registrano quando spuntano un lavoro.</p>
+      ${doneLog.length ? `
+      <div class="card card-flush divided">
+        ${doneLog.map(({ job, entry }) => {
+          const who = store.memberById(entry.by);
+          const type = store.typeById(job.typeId);
+          const condo = store.condoById(job.condoId);
+          const team = (entry.team || []).map((x) => store.memberById(x)?.name).filter(Boolean);
+          return `
+          <button class="activity-row" data-action="open-job" data-id="${job.id}">
+            ${who ? avatar(who, 'sm') : '<span class="avatar avatar-sm" style="--c:#B5BDB6">?</span>'}
+            <span class="grow" style="min-width:0">
+              <span class="activity-text"><b>${esc(type.name)}</b> · ${esc(condo?.name || '')}</span>
+              <span class="small" style="display:block">${entry.note ? `“${esc(entry.note)}”` : '<span class="is-amber">Non ha scritto cosa ha fatto</span>'}</span>
+              <span class="small muted" style="display:block">${esc(job.date ? fmtShort(job.date) : '')}${entry.minutes ? ` · ${esc(fmtDuration(entry.minutes))}` : ' · tempo non indicato'} · ${esc(team.length ? team.join(', ') : who?.name || '')}</span>
+            </span>
+          </button>`;
+        }).join('')}
+      </div>` : '<div class="week-empty">Ancora nessun lavoro registrato.</div>'}
+    </div>`;
+
   const crewSec = crew.length ? `
     <div class="section">
       ${sectionHead('La squadra oggi', '<a class="link-btn" href="#/squadra">Dettagli</a>')}
@@ -345,10 +371,10 @@ export function render() {
       <div class="home-head">${hello}${actions}</div>
       ${kpis}
       <div class="cols">
-        <div class="cols-main">${overdueSec}${unscheduledSec}${remainingSec}${deadlinesSec}</div>
+        <div class="cols-main">${doneLogSec}${overdueSec}${unscheduledSec}${remainingSec}${deadlinesSec}</div>
         <aside class="cols-side">${eventsSec}${crewSec}${todaySec}${seasonSec}</aside>
       </div>`
-      : `${hello}${kpis}${actions}${eventsSec}${crewSec}${overdueSec}${unscheduledSec}${remainingSec}${deadlinesSec}${seasonSec}`);
+      : `${hello}${kpis}${actions}${eventsSec}${crewSec}${doneLogSec}${overdueSec}${unscheduledSec}${remainingSec}${deadlinesSec}${seasonSec}`);
 
   return {
     title: 'Home',

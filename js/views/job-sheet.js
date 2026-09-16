@@ -275,7 +275,7 @@ export function openJobSheet(id) {
 
     s.setFooter(done
       ? `<button class="btn btn-ghost" data-act="done">${icon('x')}Togli la spunta</button>`
-      : `<button class="btn btn-amber" data-act="postpone">${icon('redo')}Rimanda</button><button class="btn btn-primary" data-act="done">${icon('check')}Fatto</button>`);
+      : `<button class="btn btn-amber" data-act="postpone">${icon('redo')}Rimanda</button><button class="btn btn-primary" data-act="done">${icon('check')}Fatto · registra</button>`);
   };
 
   s.el.addEventListener('click', async (e) => {

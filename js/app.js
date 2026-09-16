@@ -2,7 +2,7 @@
 import * as store from './store.js';
 import { icon } from './icons.js';
 import { avatar, memberSub } from './components.js';
-import { toggleDone, openPostponeSheet, openJobSheet } from './views/job-sheet.js';
+import { toggleDone, openPostponeSheet, openJobSheet, openDoneSheet } from './views/job-sheet.js';
 import { openEventSheet } from './views/event-sheet.js';
 import * as home from './views/home.js';
 import * as today from './views/today.js';
@@ -316,6 +316,7 @@ document.addEventListener('click', (e) => {
     document.querySelectorAll(`.check[data-id="${id}"]`).forEach((b) => b.classList.add('pop'));
   }
   if (action === 'postpone') openPostponeSheet(id);
+  if (action === 'register-done') openDoneSheet(id);
   if (action === 'open-job') openJobSheet(id);
   if (action === 'open-event') openEventSheet(id);
   if (action === 'toggle-event') {
