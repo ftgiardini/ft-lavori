@@ -20,13 +20,20 @@ create table if not exists public.team_seed (
 alter table public.team_seed enable row level security; -- nessuno la legge dall'app
 
 insert into public.team_seed (email, name, title, role, field, color, days, sort) values
-  ('nicolas@lavori.ftgiardini.com',    'Nicolas',    'Titolare · Capo giardiniere', 'titolare',    true,  '#2A7D2E', '{}',  1),
-  ('martina@lavori.ftgiardini.com',    'Martina',    'Ufficio · Pianificazione',    'ufficio',     false, '#48AB33', '{}',  2),
-  ('alessandro@lavori.ftgiardini.com', 'Alessandro', 'Giardiniere',                 'giardiniere', true,  '#8A5A3B', '{}',  3),
-  ('leonardo@lavori.ftgiardini.com',   'Leonardo',   'Giardiniere',                 'giardiniere', true,  '#4F7CAC', '{}',  4),
-  ('manuel@lavori.ftgiardini.com',     'Manuel',     'Giardiniere',                 'giardiniere', true,  '#7B61C9', '{6}', 5),
-  ('tomas@lavori.ftgiardini.com',      'Tomas',      'Giardiniere',                 'giardiniere', true,  '#D9772B', '{}',  6)
+  ('nicolas@lavori.ftgiardini.com',    'Nicolas',    'Titolare · Capo giardiniere', 'titolare',        true,  '#2A7D2E', '{}',  1),
+  ('martina@lavori.ftgiardini.com',    'Martina',    'Ufficio · Pianificazione',    'ufficio',         false, '#48AB33', '{}',  2),
+  ('alessandro@lavori.ftgiardini.com', 'Alessandro', 'Schiacciapollici',            'amministrazione', true,  '#8A5A3B', '{}',  3),
+  ('leonardo@lavori.ftgiardini.com',   'Leonardo',   'Giardiniere',                 'giardiniere',     true,  '#4F7CAC', '{}',  4),
+  ('manuel@lavori.ftgiardini.com',     'Manuel',     'Giardiniere',                 'giardiniere',     true,  '#7B61C9', '{6}', 5),
+  ('tomas@lavori.ftgiardini.com',      'Thomas',     'Giardiniere',                 'giardiniere',     true,  '#D9772B', '{}',  6)
 on conflict (email) do nothing;
+
+-- Alessandro segue scadenze dei contratti e pagamenti: nuova mansione e nuovo livello di accesso
+update public.team_seed set title = 'Schiacciapollici', role = 'amministrazione'
+where email = 'alessandro@lavori.ftgiardini.com' and role = 'giardiniere';
+
+-- Tomas si scrive Thomas (l'accesso resta tomas@...)
+update public.team_seed set name = 'Thomas' where email = 'tomas@lavori.ftgiardini.com' and name = 'Tomas';
 
 -- ---------- Persone (una riga per ogni accesso) ----------
 create table if not exists public.profiles (
@@ -34,13 +41,26 @@ create table if not exists public.profiles (
   email text,
   name  text not null,
   title text not null default '',
-  role  text not null default 'giardiniere' check (role in ('titolare', 'ufficio', 'giardiniere')),
+  role  text not null default 'giardiniere' check (role in ('titolare', 'ufficio', 'amministrazione', 'giardiniere')),
   field boolean not null default true,
   color text not null default '#4F7CAC',
   days  smallint[] not null default '{}',
   sort  int not null default 100,
   created_at timestamptz not null default now()
 );
+
+-- Livello "amministrazione" aggiunto dopo: la regola sui ruoli va rifatta sulle tabelle già esistenti
+do $$
+begin
+  alter table public.profiles drop constraint if exists profiles_role_check;
+  alter table public.profiles add constraint profiles_role_check
+    check (role in ('titolare', 'ufficio', 'amministrazione', 'giardiniere'));
+end $$;
+
+-- Alessandro: da giardiniere ad amministrazione (solo se non è già stato cambiato a mano dall'app)
+update public.profiles set title = 'Schiacciapollici', role = 'amministrazione'
+where lower(email) = 'alessandro@lavori.ftgiardini.com' and role = 'giardiniere';
+update public.profiles set name = 'Thomas' where lower(email) = 'tomas@lavori.ftgiardini.com' and name = 'Tomas';
 
 -- ---------- Impostazioni generali ----------
 create table if not exists public.settings (
@@ -125,9 +145,10 @@ create index if not exists events_date_idx on public.events (date);
 
 -- ============================================================================
 -- Regole di accesso
---   titolare    → tutto
---   ufficio     → condomini, interventi, tipi di lavoro, impostazioni (non squadra, non eliminare condomini)
---   giardiniere → legge tutto, aggiorna solo gli interventi assegnati a lui (o senza assegnazione)
+--   titolare        → tutto
+--   ufficio         → condomini, interventi, tipi di lavoro, impostazioni (non squadra, non eliminare condomini)
+--   amministrazione → come ufficio: segue scadenze dei contratti, appuntamenti e pagamenti
+--   giardiniere     → legge tutto, aggiorna solo gli interventi assegnati a lui (o senza assegnazione)
 -- ============================================================================
 
 create or replace function public.my_role() returns text
@@ -137,7 +158,7 @@ $$;
 
 create or replace function public.is_manager() returns boolean
 language sql stable security definer set search_path = public as $$
-  select coalesce((select role in ('titolare', 'ufficio') from public.profiles where id = auth.uid()), false)
+  select coalesce((select role in ('titolare', 'ufficio', 'amministrazione') from public.profiles where id = auth.uid()), false)
 $$;
 
 alter table public.profiles   enable row level security;

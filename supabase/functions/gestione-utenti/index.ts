@@ -16,7 +16,7 @@ const cors = {
 const reply = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
 
-const ROLES = ['titolare', 'ufficio', 'giardiniere'];
+const ROLES = ['titolare', 'ufficio', 'amministrazione', 'giardiniere'];
 const MIN_PASSWORD = 6;
 
 Deno.serve(async (req) => {

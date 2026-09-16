@@ -5,8 +5,8 @@
 //  - PROVA (config.js vuoto): dati salvati solo su questo dispositivo.
 // Le schermate usano sempre le stesse funzioni, qualunque sia la modalità.
 import { DEFAULT_WORK_TYPES, DEFAULT_TEAM, ROLES, WORK_TYPES_VERSION } from './data.js';
-import { uid, todayISO, parseISO } from './utils.js';
-import { planDates } from './scheduler.js';
+import { uid, todayISO, parseISO, diffDays } from './utils.js';
+import { planWork, normalizePlan } from './scheduler.js';
 import * as cloud from './cloud.js';
 import { LOGIN_DOMAIN } from './config.js';
 
@@ -167,6 +167,17 @@ function normalize(s) {
       if (j.doneBy === 'lorenzo') j.doneBy = 'tomas';
     }
     s.teamVersion = 3;
+  }
+  // Alessandro si occupa di scadenze e pagamenti: nuovo livello di accesso e nuova mansione
+  if ((s.teamVersion || 1) < 4) {
+    const a = s.team.find((m) => m.id === 'alessandro');
+    if (a && a.role === 'giardiniere') { a.role = 'amministrazione'; a.title = 'Schiacciapollici'; }
+    s.teamVersion = 4;
+  }
+  if ((s.teamVersion || 1) < 5) {
+    const t = s.team.find((m) => m.id === 'tomas');
+    if (t && t.name === 'Tomas') t.name = 'Thomas';
+    s.teamVersion = 5;
   }
   for (const m of s.team) {
     delete m.pass; // le vecchie impronte delle password non servono più
@@ -352,6 +363,8 @@ export const fieldTeam = () => state.team.filter((m) => m.field);
 export const typeById = (id) => state.workTypes.find((t) => t.id === id) || { id, name: 'Lavoro', icon: 'tool', color: '#7A8794', months: [] };
 export const workOf = (job) => condoById(job.condoId)?.works.find((w) => w.id === job.workId);
 export const isDone = (job) => job.status === DONE;
+/** Lavoro aggiunto a mano, fuori dal contratto: non conta nel "n° di N" */
+export const isExtra = (job) => !job.workId;
 
 /** Lavori visibili a un giardiniere: assegnati a lui o non ancora assegnati */
 export const matchesMember = (job, memberId) => !memberId || !job.assignees?.length || job.assignees.includes(memberId);
@@ -450,13 +463,38 @@ export function toggleEventDone(id) {
 /** Il database online ha già la tabella degli appuntamenti? (serve rieseguire schema.sql una volta) */
 export const eventsAvailable = () => !isCloud || cloud.tableAvailable('events');
 
-/** "n° 4 di 10": i fatti vengono prima, poi i programmati in ordine di data */
+/** "n° 4 di 10": i fatti vengono prima, poi i programmati in ordine di data. null per i lavori extra */
 export function jobNumber(job) {
+  if (isExtra(job)) return null;
   const work = workOf(job);
   const list = state.jobs
     .filter((j) => j.workId === job.workId)
     .sort((a, b) => (isDone(a) === isDone(b) ? byDate(a, b) : isDone(a) ? -1 : 1));
   return { n: list.indexOf(job) + 1 + (work?.doneBefore || 0), of: work?.qty ?? list.length };
+}
+
+/** Cosa è stato registrato quando il lavoro è stato spuntato (durata, cosa è stato fatto, chi c'era) */
+export function doneInfo(job) {
+  if (!job || !isDone(job)) return null;
+  const entry = [...(job.log || [])].reverse().find((l) => l.type === 'fatto');
+  return {
+    at: job.doneAt || entry?.at || null,
+    by: job.doneBy || entry?.by || null,
+    date: job.date,
+    minutes: Number(entry?.minutes) || 0,
+    note: entry?.note || '',
+    team: entry?.team || [],
+  };
+}
+
+/** Contratti che stanno per scadere (o già scaduti): serve a chi segue i pagamenti */
+export function contractDeadlines(withinDays = 90) {
+  const t = todayISO();
+  return state.condos
+    .filter((c) => c.contractEnd)
+    .map((c) => ({ condo: c, days: diffDays(t, c.contractEnd), stats: condoStats(c) }))
+    .filter((x) => x.days <= withinDays)
+    .sort((a, b) => a.days - b.days);
 }
 
 export function workStats(condo, work) {
@@ -535,7 +573,11 @@ function log(job, entry) {
   job.log.push({ at: Date.now(), by: currentUser()?.id, ...entry });
 }
 
-export function markDone(id) {
+/**
+ * Spunta un lavoro. I dettagli (giorno, durata, cosa è stato fatto) si possono
+ * aggiungere subito oppure dopo con registerDone: il lavoro risulta fatto comunque.
+ */
+export function markDone(id, info = null) {
   const j = jobById(id);
   if (!j || isDone(j)) return;
   const t = todayISO();
@@ -544,6 +586,24 @@ export function markDone(id) {
   j.doneBy = currentUser()?.id;
   if (!j.date || j.date > t) { j.plannedDate = j.date; j.date = t; }
   log(j, { type: 'fatto' });
+  commit();
+  if (info) registerDone(id, info);
+}
+
+/** Aggiunge o corregge i dati del lavoro fatto: giorno, minuti impiegati, cosa è stato fatto, chi c'era */
+export function registerDone(id, { date, minutes, note, team } = {}) {
+  const j = jobById(id);
+  if (!j || !isDone(j)) return;
+  const entry = [...(j.log || [])].reverse().find((l) => l.type === 'fatto');
+  if (date && date !== j.date) {
+    if (entry) entry.movedFrom = j.date;
+    j.date = date;
+  }
+  if (entry) {
+    if (minutes !== undefined) entry.minutes = Math.max(0, Math.round(Number(minutes) || 0)) || undefined;
+    if (note !== undefined) entry.note = String(note || '').trim() || undefined;
+    if (team !== undefined) entry.team = team?.length ? [...new Set(team)] : undefined;
+  }
   commit();
 }
 
@@ -595,11 +655,21 @@ export function deleteJob(id) {
   commit();
 }
 
-export function addJob({ condoId, workId, date }) {
+/**
+ * Intervento aggiunto a mano.
+ * Con workId conta negli interventi previsti dal contratto;
+ * con il solo typeId è un lavoro in più (extra), che non tocca i conteggi del contratto.
+ */
+export function addJob({ condoId, workId, typeId, date, note = '', assignees }) {
   const condo = condoById(condoId);
-  const work = condo?.works.find((w) => w.id === workId);
-  if (!work) return null;
-  const j = newJob(condo, work, date || null);
+  if (!condo) return null;
+  const work = workId ? condo.works.find((w) => w.id === workId) : null;
+  if (workId && !work) return null;
+  const type = work ? work.typeId : typeId;
+  if (!type) return null;
+  const j = newJob(condo, { id: work?.id || '', typeId: type }, date || null);
+  if (note) j.note = note;
+  if (assignees) j.assignees = [...new Set(assignees)];
   log(j, { type: 'aggiunto' });
   state.jobs.push(j);
   commit();
@@ -622,32 +692,55 @@ function newJob(condo, work, date) {
 
 // ---------- Condomini e pianificazione ----------
 
-function loadMap() {
+/** Quanti interventi ci sono già in ogni giorno (per non riempire troppo una giornata) */
+function loadMap(exceptCondoId = null) {
   const m = {};
-  for (const j of state.jobs) if (j.date && !isDone(j)) m[j.date] = (m[j.date] || 0) + 1;
+  for (const j of state.jobs) {
+    if (!j.date || isDone(j) || (exceptCondoId && j.condoId === exceptCondoId)) continue;
+    m[j.date] = (m[j.date] || 0) + 1;
+  }
   return m;
 }
 
+/** Giorni in cui questo condominio ha già un intervento (per non metterne due lo stesso giorno) */
+function busyDays(condoId, { onlyDone = false } = {}) {
+  const s = new Set();
+  for (const j of state.jobs) {
+    if (j.condoId !== condoId || !j.date) continue;
+    if (onlyDone && !isDone(j)) continue;
+    s.add(j.date);
+  }
+  return s;
+}
+
 /** Cancella gli interventi non ancora fatti di un lavoro e ripianifica quelli che mancano */
-function scheduleWork(condo, work, load) {
+function scheduleWork(condo, work, load, busyCondo) {
   state.jobs = state.jobs.filter((j) => !(j.workId === work.id && !isDone(j)));
   const done = state.jobs.filter((j) => j.workId === work.id && isDone(j)).length + (work.doneBefore || 0);
   const toPlan = Math.max(0, work.qty - done);
   const t = todayISO();
   const from = condo.contractStart > t ? condo.contractStart : t;
-  const dates = planDates({ from, to: condo.contractEnd, months: work.months, count: toPlan, workDays: state.settings.workDays, load });
+  const { dates } = planWork({
+    plan: work.plan, from, to: condo.contractEnd, months: work.months, count: toPlan,
+    workDays: state.settings.workDays, load, busyCondo,
+  });
   for (let i = 0; i < toPlan; i++) state.jobs.push(newJob(condo, work, dates[i] || null));
 }
 
-/** Anteprima senza salvare: quante date trova per ogni lavoro */
-export function previewPlan(data) {
+/** Anteprima senza salvare: le date che verrebbero messe in calendario per ogni lavoro */
+export function previewPlan(data, condoId = null) {
   const t = todayISO();
   const from = data.contractStart > t ? data.contractStart : t;
-  const load = loadMap();
+  const load = loadMap(condoId);
+  const busyCondo = new Set();
   return data.works.map((w) => {
-    const toPlan = Math.max(0, w.qty - (w.doneBefore || 0) - (w.doneJobs || 0));
-    const dates = planDates({ from, to: data.contractEnd, months: w.months, count: toPlan, workDays: state.settings.workDays, load });
-    return { work: w, toPlan, dates };
+    const doneJobs = condoId ? state.jobs.filter((j) => j.workId === w.id && isDone(j)).length : 0;
+    const toPlan = Math.max(0, w.qty - (w.doneBefore || 0) - doneJobs);
+    const res = planWork({
+      plan: w.plan, from, to: data.contractEnd, months: w.months, count: toPlan,
+      workDays: state.settings.workDays, load, busyCondo,
+    });
+    return { work: w, toPlan, ...res };
   });
 }
 
@@ -656,8 +749,15 @@ const CONDO_FIELDS = ['name', 'address', 'city', 'adminName', 'phone', 'email', 
 function cleanWorks(works) {
   return works
     .filter((w) => w.qty > 0)
-    .map((w) => ({ id: w.id || uid('w_'), typeId: w.typeId, qty: Number(w.qty), months: [...w.months].sort((a, b) => a - b), doneBefore: Number(w.doneBefore) || 0, notes: w.notes || '' }));
+    .map((w) => ({
+      id: w.id || uid('w_'), typeId: w.typeId, qty: Number(w.qty),
+      months: [...w.months].sort((a, b) => a - b), doneBefore: Number(w.doneBefore) || 0,
+      notes: w.notes || '', plan: normalizePlan(w.plan),
+    }));
 }
+
+/** Due lavori dello stesso lavoro/condominio cambiano giorno? Allora va ripianificato */
+const samePlan = (a, b) => JSON.stringify(normalizePlan(a)) === JSON.stringify(normalizePlan(b));
 
 export function createCondo(data) {
   const condo = { id: uid('c_'), createdAt: Date.now() };
@@ -665,7 +765,8 @@ export function createCondo(data) {
   condo.works = cleanWorks(data.works);
   state.condos.push(condo);
   const load = loadMap();
-  for (const w of condo.works) scheduleWork(condo, w, load);
+  const busyCondo = new Set();
+  for (const w of condo.works) scheduleWork(condo, w, load, busyCondo);
   commit();
   return condo;
 }
@@ -681,11 +782,16 @@ export function updateCondo(id, data) {
   state.jobs = state.jobs.filter((j) => !(j.condoId === id && !isDone(j) && removed.some((r) => r.id === j.workId)));
 
   const periodChanged = old.contractStart !== c.contractStart || old.contractEnd !== c.contractEnd;
-  const load = loadMap();
+  const load = loadMap(id);
+  const busyCondo = busyDays(id);
   for (const w of c.works) {
     const ow = old.works.find((o) => o.id === w.id);
-    const changed = !ow || periodChanged || ow.qty !== w.qty || ow.doneBefore !== w.doneBefore || ow.months.join() !== w.months.join();
-    if (changed) scheduleWork(c, w, load);
+    const changed = !ow || periodChanged || ow.qty !== w.qty || ow.doneBefore !== w.doneBefore
+      || ow.months.join() !== w.months.join() || !samePlan(ow.plan, w.plan);
+    if (changed) {
+      for (const j of state.jobs) if (j.workId === w.id && !isDone(j) && j.date) busyCondo.delete(j.date);
+      scheduleWork(c, w, load, busyCondo);
+    }
   }
 
   if (old.team.join() !== c.team.join()) {
@@ -699,8 +805,9 @@ export function updateCondo(id, data) {
 export function replanCondo(id) {
   const c = condoById(id);
   if (!c) return;
-  const load = loadMap();
-  for (const w of c.works) scheduleWork(c, w, load);
+  const load = loadMap(id);
+  const busyCondo = busyDays(id, { onlyDone: true });
+  for (const w of c.works) scheduleWork(c, w, load, busyCondo);
   commit();
 }
 

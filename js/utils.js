@@ -112,6 +112,19 @@ export function monthsLabel(months = []) {
   return set.map((m) => MONTHS_SHORT[m - 1]).join(', ');
 }
 
+/** Quanti giorni ha quel mese (m = 1-12) */
+export const daysInMonth = (y, m) => new Date(y, m, 0).getDate();
+
+/** 90 → "1 h 30 min" · 45 → "45 min" · 120 → "2 h" */
+export function fmtDuration(minutes) {
+  const n = Math.max(0, Math.round(Number(minutes) || 0));
+  if (!n) return '';
+  const h = Math.floor(n / 60);
+  const m = n % 60;
+  if (!h) return `${m} min`;
+  return m ? `${h} h ${m} min` : `${h} h`;
+}
+
 export function uid(prefix = '') {
   return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }

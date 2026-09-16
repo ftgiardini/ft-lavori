@@ -20,10 +20,12 @@ export const WORK_TYPES_VERSION = 3;
 //  squadra      schermata Squadra: attività dei giardinieri, persone, ruoli e password
 //  backup       scaricare il backup
 //  dati         caricare un backup, cancellare tutto
+// "home" dice quale Home vede la persona: 'gestione' (lavori) · 'scadenze' (contratti e appuntamenti)
 export const ROLES = {
-  titolare: { label: 'Titolare', desc: 'Controllo completo: squadra, password, condomini e dati', perms: ['gestione', 'condomini', 'elimina', 'impostazioni', 'squadra', 'backup', 'dati'] },
-  ufficio: { label: 'Ufficio', desc: 'Condomini, contratti, pianificazione e assegnazioni', perms: ['gestione', 'condomini', 'impostazioni', 'backup'] },
-  giardiniere: { label: 'Giardiniere', desc: 'Calendario e spunta dei propri lavori', perms: [] },
+  titolare: { label: 'Titolare', desc: 'Controllo completo: squadra, password, condomini e dati', home: 'gestione', perms: ['gestione', 'condomini', 'elimina', 'impostazioni', 'squadra', 'backup', 'dati'] },
+  ufficio: { label: 'Ufficio', desc: 'Condomini, contratti, pianificazione e assegnazioni', home: 'gestione', perms: ['gestione', 'condomini', 'impostazioni', 'backup'] },
+  amministrazione: { label: 'Amministrazione', desc: 'Scadenze dei contratti, pagamenti, calendario e appuntamenti', home: 'scadenze', perms: ['gestione', 'condomini', 'backup'] },
+  giardiniere: { label: 'Giardiniere', desc: 'Calendario e spunta dei propri lavori', home: 'oggi', perms: [] },
 };
 
 // field: true = va nei cantieri (può ricevere lavori). role: una chiave di ROLES.
@@ -33,10 +35,10 @@ export const ROLES = {
 export const DEFAULT_TEAM = [
   { id: 'nicolas', name: 'Nicolas', role: 'titolare', title: 'Titolare · Capo giardiniere', field: true, color: '#2A7D2E' },
   { id: 'martina', name: 'Martina', role: 'ufficio', title: 'Ufficio · Pianificazione', field: false, color: '#48AB33' },
-  { id: 'alessandro', name: 'Alessandro', role: 'giardiniere', title: 'Giardiniere', field: true, color: '#8A5A3B' },
+  { id: 'alessandro', name: 'Alessandro', role: 'amministrazione', title: 'Schiacciapollici', field: true, color: '#8A5A3B' },
   { id: 'leonardo', name: 'Leonardo', role: 'giardiniere', title: 'Giardiniere', field: true, color: '#4F7CAC' },
   { id: 'manuel', name: 'Manuel', role: 'giardiniere', title: 'Giardiniere', field: true, color: '#7B61C9', days: [6] },
-  { id: 'tomas', name: 'Tomas', role: 'giardiniere', title: 'Giardiniere', field: true, color: '#D9772B' },
+  { id: 'tomas', name: 'Thomas', role: 'giardiniere', title: 'Giardiniere', field: true, color: '#D9772B' },
 ];
 
 // Voci del calendario che non sono lavori dei contratti
@@ -46,6 +48,18 @@ export const EVENT_KINDS = [
   { id: 'lavoro', label: 'Lavoro extra', icon: 'tool', color: '#7B61C9', placeholder: 'Es. Potatura giardino privato via Roma' },
 ];
 export const eventKind = (id) => EVENT_KINDS.find((k) => k.id === id) || EVENT_KINDS[0];
+
+// Come si decidono i giorni di un lavoro del contratto (vedi scheduler.js)
+export const PLAN_MODES = [
+  { id: 'mensile', label: 'Giorni del mese', hint: 'Es. il 5 e il 20 di ogni mese scelto' },
+  { id: 'settimanale', label: 'Giorni della settimana', hint: 'Es. ogni martedì, o un martedì sì e uno no' },
+  { id: 'date', label: 'Date precise', hint: 'Scegli una per una le date sul calendario' },
+  { id: 'auto', label: 'Sceglie l’app', hint: 'Distribuisce da sola gli interventi nei mesi scelti' },
+];
+export const DEFAULT_PLAN = { mode: 'mensile', days: [], weekdays: [], every: 1, dates: [], avoidClash: true };
+
+// Durate rapide quando si registra un lavoro fatto (minuti)
+export const DURATIONS = [30, 60, 90, 120, 180, 240, 360, 480];
 
 export const POSTPONE_REASONS = ['Maltempo', 'Tempo insufficiente', 'Accesso non possibile', 'Mezzi / attrezzi', 'Altro'];
 

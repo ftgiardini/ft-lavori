@@ -1,12 +1,17 @@
-// Dettaglio intervento, "fatto", "rimanda" e aggiunta manuale di un intervento.
+// Dettaglio intervento, "fatto" (con registrazione del lavoro), "rimanda" e aggiunta manuale di un intervento.
 import * as store from '../store.js';
 import { openSheet, toast, confirmDialog } from '../ui.js';
 import { icon } from '../icons.js';
 import { typeIcon, avatar, daysLabel } from '../components.js';
-import { POSTPONE_REASONS } from '../data.js';
-import { esc, fmtLong, fmtShort, fmtTime, addDays, todayISO, relDay, mapsUrl, parseISO } from '../utils.js';
+import { POSTPONE_REASONS, DURATIONS } from '../data.js';
+import { esc, fmtLong, fmtShort, fmtTime, fmtDuration, addDays, todayISO, relDay, mapsUrl, parseISO } from '../utils.js';
 
-export function toggleDone(id) {
+/**
+ * Spunta o toglie la spunta.
+ * Quando si spunta, il lavoro risulta subito fatto (anche se si chiude tutto)
+ * e si apre il pannello per registrare giorno, durata e cosa è stato fatto.
+ */
+export function toggleDone(id, { ask = true } = {}) {
   const job = store.jobById(id);
   if (!job) return;
   const type = store.typeById(job.typeId);
@@ -16,12 +21,91 @@ export function toggleDone(id) {
     return;
   }
   store.markDone(id);
+  if (ask) { openDoneSheet(id); return; }
+  toast(`Fatto: ${type.name}`, { actionText: 'Annulla', onAction: () => store.undoDone(id) });
+}
+
+/** Quanti ne mancano di questo lavoro nel contratto */
+function remainingMsg(job) {
   const condo = store.condoById(job.condoId);
   const work = store.workOf(job);
-  const stats = condo && work ? store.workStats(condo, work) : null;
-  let msg = `Fatto: ${type.name}`;
-  if (stats) msg += stats.remaining === 0 ? ' · tutti quelli del contratto completati' : ` · ne mancano ${stats.remaining} su ${stats.total}`;
-  toast(msg, { actionText: 'Annulla', onAction: () => store.undoDone(id) });
+  if (!condo || !work) return '';
+  const stats = store.workStats(condo, work);
+  return stats.remaining === 0 ? 'Tutti quelli del contratto sono stati fatti.' : `Ne mancano ${stats.remaining} su ${stats.total}.`;
+}
+
+/** Registrazione del lavoro fatto: in che giorno, quanto tempo, cosa è stato fatto, chi c'era */
+export function openDoneSheet(id) {
+  const job = store.jobById(id);
+  if (!job) return;
+  const type = store.typeById(job.typeId);
+  const condo = store.condoById(job.condoId);
+  const info = store.doneInfo(job) || {};
+  const me = store.currentUser();
+  const team = store.fieldTeam();
+  let date = info.date || job.date || todayISO();
+  let minutes = info.minutes || 0;
+  let who = info.team?.length ? [...info.team] : (job.assignees?.length ? [...job.assignees] : me ? [me.id] : []);
+
+  const peopleRow = () => `
+    ${team.map((m) => `<button class="${who.includes(m.id) ? 'on' : ''}" data-who="${m.id}">${avatar(m, 'xs')}${esc(m.name)}</button>`).join('')}`;
+  const durRow = () => DURATIONS.map((n) => `<button class="${minutes === n ? 'on' : ''}" data-min="${n}">${esc(fmtDuration(n))}</button>`).join('');
+
+  const s = openSheet({
+    title: 'Lavoro fatto',
+    subtitle: `${esc(type.name)}${condo ? ` · ${esc(condo.name)}` : ''}`,
+    body: `
+      <div class="done-hero">${icon('check')}<div><strong>Segnato come fatto</strong><small>${esc(remainingMsg(job) || 'Lavoro in più, fuori contratto.')}</small></div></div>
+      <div class="field" style="margin-top:16px">
+        <label for="dn-date">In che giorno l'avete fatto</label>
+        <input id="dn-date" class="input" type="date" value="${esc(date)}" max="${todayISO()}">
+      </div>
+      <div class="field">
+        <span class="label">Quanto tempo ci avete messo</span>
+        <div class="pick" data-durations style="margin-top:6px">${durRow()}</div>
+        <div class="row" style="margin-top:8px;gap:8px">
+          <input class="input" type="number" inputmode="numeric" min="0" max="900" step="5" placeholder="Minuti" value="${minutes || ''}" data-minutes style="max-width:140px">
+          <span class="small muted">minuti in tutto (per tutta la squadra)</span>
+        </div>
+      </div>
+      <div class="field">
+        <span class="label">Chi ha lavorato</span>
+        <div class="pick" data-people style="margin-top:6px">${peopleRow()}</div>
+      </div>
+      <div class="field">
+        <label for="dn-note">Cosa avete fatto</label>
+        <textarea id="dn-note" class="textarea" rows="3" placeholder="Es. sfalcio completo, siepe davanti all'ingresso, portato via il materiale">${esc(info.note || '')}</textarea>
+        <p class="hint">Lo vedono Nicolas e Martina nella scheda del lavoro e nelle attività della squadra.</p>
+      </div>`,
+    footer: `<button class="btn btn-ghost" data-skip>Solo fatto</button><button class="btn btn-primary" data-ok>${icon('check')}Registra</button>`,
+  });
+
+  s.el.addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    const ds = b.dataset;
+    if (ds.min) {
+      minutes = minutes === Number(ds.min) ? 0 : Number(ds.min);
+      s.el.querySelector('[data-durations]').innerHTML = durRow();
+      s.el.querySelector('[data-minutes]').value = minutes || '';
+    }
+    if (ds.who) {
+      who = who.includes(ds.who) ? who.filter((x) => x !== ds.who) : [...who, ds.who];
+      s.el.querySelector('[data-people]').innerHTML = peopleRow();
+    }
+    if ('skip' in ds) { s.close(); toast(`Fatto: ${type.name}`, { actionText: 'Annulla', onAction: () => store.undoDone(id) }); }
+    if ('ok' in ds) {
+      date = s.el.querySelector('#dn-date').value || date;
+      const typed = Number(s.el.querySelector('[data-minutes]').value) || 0;
+      store.registerDone(id, { date, minutes: typed || minutes, note: s.el.querySelector('#dn-note').value, team: who });
+      s.close();
+      toast(`Registrato: ${type.name}${typed || minutes ? ` · ${fmtDuration(typed || minutes)}` : ''}`);
+    }
+  });
+  s.el.querySelector('[data-minutes]').addEventListener('input', (e) => {
+    minutes = Math.max(0, Number(e.target.value) || 0);
+    s.el.querySelector('[data-durations]').innerHTML = durRow();
+  });
 }
 
 // ---------- Rimanda ----------
@@ -93,7 +177,7 @@ const LOG_TEXT = {
   aggiunto: () => 'Aggiunto a mano',
   spostato: (l) => `Spostato ${l.from ? `da ${fmtShort(l.from)} ` : ''}a ${l.to ? fmtShort(l.to) : 'da programmare'}`,
   rimandato: (l) => `Rimandato ${l.from ? `da ${fmtShort(l.from)} ` : ''}a ${fmtShort(l.to)}${l.reason ? ` · ${esc(l.reason)}` : ''}${l.note ? ` · “${esc(l.note)}”` : ''}`,
-  fatto: () => 'Segnato come fatto',
+  fatto: (l) => `Fatto${l.minutes ? ` in ${fmtDuration(l.minutes)}` : ''}${l.movedFrom ? ` (spostato dal ${fmtShort(l.movedFrom)})` : ''}${l.note ? ` · “${esc(l.note)}”` : ''}`,
   annullato: () => 'Riaperto (tolta la spunta)',
 };
 
@@ -106,24 +190,37 @@ export function openJobSheet(id) {
     if (!job) { s.close(); return; }
     const type = store.typeById(job.typeId);
     const condo = store.condoById(job.condoId);
-    const { n, of } = store.jobNumber(job);
+    const num = store.jobNumber(job);
     const done = store.isDone(job);
     const admin = store.isAdmin();
     const late = !done && job.date && job.date < todayISO();
     const address = condo ? [condo.address, condo.city].filter(Boolean).join(', ') : '';
     const team = store.fieldTeam();
+    const info = store.doneInfo(job);
+    const whoDid = (info?.team || []).map((x) => store.memberById(x)).filter(Boolean);
 
     s.setBody(`
       <div class="job-hero">
         ${typeIcon(type, 'lg')}
         <div class="grow">
           <h3>${esc(type.name)}</h3>
-          <p>Intervento ${n} di ${of} previsti dal contratto</p>
+          <p>${num ? `Intervento ${num.n} di ${num.of} previsti dal contratto` : 'Lavoro in più, fuori dal contratto'}</p>
         </div>
       </div>
       <div class="row wrap" style="margin-top:12px;gap:6px">
         ${done ? `<span class="chip chip-green">${icon('check')}Fatto${job.doneBy ? ` da ${esc(store.memberById(job.doneBy)?.name || '')}` : ''}</span>` : late ? `<span class="chip chip-red">${icon('alert')}In ritardo</span>` : `<span class="chip">${icon('clock')}Da fare</span>`}
+        ${info?.minutes ? `<span class="chip">${icon('clock')}${esc(fmtDuration(info.minutes))}</span>` : ''}
       </div>
+
+      ${done ? `
+      <div class="card card-flush divided" style="margin-top:14px">
+        <div class="info-row">
+          ${icon('note')}
+          <div class="grow"><span class="label">Cosa è stato fatto</span><span class="value" style="font-weight:500">${info?.note ? esc(info.note) : '<span class="muted">Non registrato</span>'}</span>
+          ${whoDid.length ? `<span class="small muted" style="display:block;margin-top:4px">Con: ${whoDid.map((m) => esc(m.name)).join(', ')}</span>` : ''}</div>
+          <button class="btn btn-soft btn-sm" data-act="register">${info?.note || info?.minutes ? 'Correggi' : 'Aggiungi'}</button>
+        </div>
+      </div>` : ''}
 
       <div class="card card-flush divided" style="margin-top:14px">
         <div class="info-row">
@@ -189,10 +286,13 @@ export function openJobSheet(id) {
     switch (b.dataset.act) {
       case 'done': {
         const wasDone = store.isDone(job);
-        toggleDone(id);
-        if (!wasDone) s.close();
+        if (wasDone) { toggleDone(id); break; }
+        store.markDone(id);
+        s.close();
+        setTimeout(() => openDoneSheet(id), 230);
         break;
       }
+      case 'register': s.close(); setTimeout(() => openDoneSheet(id), 230); break;
       case 'postpone': openPostponeSheet(id); break;
       case 'show-date': s.el.querySelector('[data-date-row]').hidden = false; break;
       case 'assign-all': {
@@ -240,8 +340,20 @@ export function openAddJobSheet({ date = todayISO(), condoId = '' } = {}) {
   if (!condos.length) { toast('Aggiungi prima un condominio'); return; }
   let cId = condoId || condos[0].id;
 
-  const worksOptions = () => (store.condoById(cId)?.works || [])
-    .map((w) => `<option value="${w.id}">${esc(store.typeById(w.typeId).name)}</option>`).join('');
+  // Si può scegliere un lavoro del contratto oppure qualsiasi altro tipo di lavoro (anche nuovo)
+  const worksOptions = () => {
+    const condo = store.condoById(cId);
+    const contract = condo?.works || [];
+    const used = new Set(contract.map((w) => w.typeId));
+    const others = store.getState().workTypes.filter((t) => !used.has(t.id));
+    return `
+      ${contract.length ? `<optgroup label="Previsti dal contratto">${contract.map((w) => `<option value="w:${w.id}">${esc(store.typeById(w.typeId).name)}</option>`).join('')}</optgroup>` : ''}
+      <optgroup label="Altri lavori (in più, fuori contratto)">
+        ${others.map((t) => `<option value="t:${t.id}">${esc(t.name)}</option>`).join('')}
+        ${contract.map((w) => `<option value="t:${w.typeId}">${esc(store.typeById(w.typeId).name)} (in più)</option>`).join('')}
+      </optgroup>
+      <optgroup label="Altro"><option value="nuovo">+ Scrivi un lavoro nuovo…</option></optgroup>`;
+  };
 
   const s = openSheet({
     title: 'Aggiungi intervento',
@@ -250,19 +362,43 @@ export function openAddJobSheet({ date = todayISO(), condoId = '' } = {}) {
       <div class="field"><label for="aj-condo">Condominio</label>
         <select id="aj-condo" class="select">${condos.map((c) => `<option value="${c.id}" ${c.id === cId ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>
       <div class="field"><label for="aj-work">Lavoro</label><select id="aj-work" class="select">${worksOptions()}</select></div>
+      <div class="field" data-new-wrap hidden><label for="aj-new">Nome del lavoro nuovo</label>
+        <input id="aj-new" class="input" placeholder="Es. Pulizia tombini, potatura alberi…" autocomplete="off">
+        <p class="hint">Viene aggiunto all'elenco dei tipi di lavoro, così la prossima volta lo trovi già pronto.</p></div>
       <div class="field"><label for="aj-date">Data</label><input id="aj-date" class="input" type="date" value="${date}"></div>
-      <p class="small muted" style="margin-top:12px">Conta come uno degli interventi previsti dal contratto per quel lavoro.</p>`,
+      <div class="field"><label for="aj-note">Nota <span class="muted">(facoltativa)</span></label>
+        <textarea id="aj-note" class="textarea" rows="2" placeholder="Es. richiesta dall'amministratore"></textarea></div>
+      <p class="small muted">I lavori <b class="strong">previsti dal contratto</b> contano nel conteggio (es. 4 di 10). Quelli <b class="strong">in più</b> restano fuori dal contratto.</p>`,
     footer: `<button class="btn btn-ghost" data-close>Annulla</button><button class="btn btn-primary" data-ok>${icon('plus')}Aggiungi</button>`,
   });
+
+  const workSel = s.el.querySelector('#aj-work');
+  const newWrap = s.el.querySelector('[data-new-wrap]');
+  const syncNew = () => { newWrap.hidden = workSel.value !== 'nuovo'; if (!newWrap.hidden) s.el.querySelector('#aj-new').focus(); };
+  workSel.addEventListener('change', syncNew);
   s.el.querySelector('#aj-condo').addEventListener('change', (e) => {
     cId = e.target.value;
-    s.el.querySelector('#aj-work').innerHTML = worksOptions();
+    workSel.innerHTML = worksOptions();
+    syncNew();
   });
+
   s.el.querySelector('[data-ok]').addEventListener('click', () => {
-    const workId = s.el.querySelector('#aj-work').value;
+    const val = workSel.value;
     const d = s.el.querySelector('#aj-date').value;
-    if (!workId) { toast('Questo condominio non ha lavori a contratto'); return; }
-    store.addJob({ condoId: cId, workId, date: d });
+    const note = s.el.querySelector('#aj-note').value.trim();
+    if (!val) { toast('Scegli il lavoro'); return; }
+    let payload = { condoId: cId, date: d, note };
+    if (val === 'nuovo') {
+      const name = s.el.querySelector('#aj-new').value.trim();
+      if (!name) { toast('Scrivi il nome del lavoro'); return; }
+      const type = store.saveWorkType({ name, icon: 'tool', color: '#7B61C9', months: [] });
+      payload.typeId = type.id;
+    } else if (val.startsWith('w:')) {
+      payload.workId = val.slice(2);
+    } else {
+      payload.typeId = val.slice(2);
+    }
+    if (!store.addJob(payload)) { toast('Non sono riuscito ad aggiungere il lavoro'); return; }
     toast(`Intervento aggiunto${d ? ` per ${fmtLong(d)}` : ''}`);
     s.close();
   });

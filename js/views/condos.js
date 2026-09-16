@@ -4,6 +4,7 @@ import { icon } from '../icons.js';
 import { rerender, confirmDialog, toast, isWide } from '../ui.js';
 import { jobCard, progressBar, sectionHead, typeIcon, seasonChips, avatar, emptyState } from '../components.js';
 import { openAddJobSheet } from './job-sheet.js';
+import { planLabel } from '../scheduler.js';
 import { esc, todayISO, relDay, fmtDateNum, monthsLabel, mapsUrl, plural } from '../utils.js';
 
 let query = '';
@@ -174,6 +175,7 @@ export function renderDetail(id) {
             <div class="grow">
               <h3>${esc(type.name)}</h3>
               <div class="work-period">${icon('calendar')}${monthsLabel(w.months)} ${seasonChips(w.months)}</div>
+              <div class="small muted">${esc(planLabel(w.plan))}</div>
             </div>
             <div class="work-count"><strong>${ws.done}/${w.qty}</strong><small>fatti</small></div>
           </div>

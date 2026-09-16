@@ -1,13 +1,13 @@
 // Nuovo condominio / modifica: procedura guidata in 3 passi.
-// 1 Contratto (PDF, testo o a mano) → 2 Dati, squadra, lavori e quantità → 3 Anteprima calendario.
+// 1 Contratto (PDF, testo o a mano) → 2 Dati, squadra, lavori, quantità e giorni → 3 Anteprima calendario.
 import * as store from '../store.js';
 import { icon } from '../icons.js';
 import { rerender, toast, openSheet } from '../ui.js';
 import { typeIcon, avatar, daysLabel } from '../components.js';
 import { pdfToText, parseContract } from '../contract-parser.js';
-import { planDates, periodMonths } from '../scheduler.js';
-import { WORK_COLORS } from '../data.js';
-import { esc, todayISO, addDays, parseISO, toISO, monthsLabel, fmtLong, MONTH_INITIALS, MONTHS_SHORT, WEEKDAYS_SHORT, plural } from '../utils.js';
+import { periodMonths, normalizePlan, planLabel } from '../scheduler.js';
+import { WORK_COLORS, PLAN_MODES, DEFAULT_PLAN } from '../data.js';
+import { esc, todayISO, addDays, parseISO, toISO, monthsLabel, fmtLong, fmtShort, MONTH_INITIALS, MONTHS_SHORT, WEEKDAYS_SHORT, plural } from '../utils.js';
 
 const STEPS = ['Contratto', 'Dati e lavori', 'Calendario'];
 const LAST = STEPS.length - 1;
@@ -27,13 +27,15 @@ function initDraft(id) {
   const data = condo
     ? { name: condo.name, address: condo.address, city: condo.city, adminName: condo.adminName, phone: condo.phone, email: condo.email, notes: condo.notes, contractStart: condo.contractStart, contractEnd: condo.contractEnd, team: [...condo.team] }
     : { name: '', address: '', city: '', adminName: '', phone: '', email: '', notes: '', contractStart: t, contractEnd: oneYearFrom(t), team: [] };
-  const works = types.map((type) => {
-    const w = condo?.works.find((x) => x.typeId === type.id);
-    return w
-      ? { id: w.id, typeId: type.id, qty: w.qty, months: [...w.months], doneBefore: w.doneBefore || 0, notes: w.notes || '' }
-      : { typeId: type.id, qty: 0, months: [...type.months], doneBefore: 0, notes: '' };
-  });
-  draft = { key: id || 'nuovo', id, step: id ? 1 : 0, mode: null, parsing: false, parseError: '', parsed: false, text: '', data, works };
+  const works = types.map((type) => newWork(type, condo?.works.find((x) => x.typeId === type.id)));
+  draft = { key: id || 'nuovo', id, step: id ? 1 : 0, mode: null, parsing: false, parseError: '', parsed: false, text: '', data, works, open: null };
+}
+
+/** Riga del modulo per un tipo di lavoro (con i dati del contratto, se c'è già) */
+function newWork(type, w) {
+  return w
+    ? { id: w.id, typeId: type.id, qty: w.qty, months: [...w.months], doneBefore: w.doneBefore || 0, notes: w.notes || '', plan: normalizePlan(w.plan) }
+    : { typeId: type.id, qty: 0, months: [...type.months], doneBefore: 0, notes: '', plan: { ...DEFAULT_PLAN, days: [], weekdays: [] } };
 }
 
 export function renderForm(id) {
@@ -44,7 +46,7 @@ export function renderForm(id) {
   const d = draft;
   // tipi di lavoro arrivati dopo l'apertura del modulo (es. dati online appena scaricati)
   for (const type of store.getState().workTypes) {
-    if (!d.works.some((w) => w.typeId === type.id)) d.works.push({ typeId: type.id, qty: 0, months: [...type.months], doneBefore: 0, notes: '' });
+    if (!d.works.some((w) => w.typeId === type.id)) d.works.push(newWork(type));
   }
   const editing = !!d.id;
   const firstStep = editing ? 1 : 0;
@@ -178,19 +180,89 @@ function stepData() {
 
 // ---------- Passo 3: lavori ----------
 
+function monthsPicker(w, i) {
+  const type = store.typeById(w.typeId);
+  return `
+    <span class="label">In quali mesi</span>
+    <div class="months" style="--c:${type.color};margin-top:8px">
+      ${MONTH_INITIALS.map((l, m) => `<button class="${w.months.includes(m + 1) ? 'on' : ''}" data-month="${m + 1}" data-work="${i}" aria-label="${MONTHS_SHORT[m]}">${l}<small>${MONTHS_SHORT[m]}</small></button>`).join('')}
+    </div>`;
+}
+
+/** Scelta dei giorni: del mese, della settimana, date precise oppure automatico */
+function planEditor(w, i, found) {
+  const p = w.plan;
+  const type = store.typeById(w.typeId);
+  const dayGrid = `
+    <span class="label">Che giorno del mese</span>
+    <p class="hint" style="margin:2px 0 8px">Tocca i giorni: si ripetono in tutti i mesi scelti qui sotto. Se cade di domenica o è già occupato, l'intervento slitta al primo giorno utile.</p>
+    <div class="daygrid" style="--c:${type.color}">
+      ${Array.from({ length: 31 }, (_, k) => `<button class="${p.days.includes(k + 1) ? 'on' : ''}" data-day-month="${k + 1}" data-work="${i}">${k + 1}</button>`).join('')}
+    </div>`;
+
+  const weekPick = `
+    <span class="label">Che giorno della settimana</span>
+    <div class="pick" style="margin-top:8px">
+      ${[1, 2, 3, 4, 5, 6, 0].map((wd) => `<button class="${p.weekdays.includes(wd) ? 'on' : ''}" data-weekday="${wd}" data-work="${i}">${WEEKDAYS_SHORT[wd]}</button>`).join('')}
+    </div>
+    <span class="label" style="margin-top:12px;display:block">Ogni quanto</span>
+    <div class="seg" style="margin-top:6px">
+      ${[[1, 'Ogni settimana'], [2, 'Ogni 2 settimane'], [3, 'Ogni 3'], [4, 'Ogni 4']].map(([n, l]) => `<button class="${p.every === n ? 'on' : ''}" data-every="${n}" data-work="${i}">${l}</button>`).join('')}
+    </div>`;
+
+  const datePick = `
+    <span class="label">Le date, una per una</span>
+    <div class="row" style="margin-top:8px;gap:8px">
+      <input class="input" type="date" data-new-date="${i}" min="${esc(draft.data.contractStart)}" max="${esc(draft.data.contractEnd)}" aria-label="Aggiungi una data">
+      <button class="btn btn-soft" data-add-date="${i}">${icon('plus')}Aggiungi</button>
+    </div>
+    ${p.dates.length ? `<div class="date-chips">${p.dates.map((dt) => `<span class="date-chip">${esc(fmtShort(dt))}<button data-del-date="${esc(dt)}" data-work="${i}" aria-label="Togli ${esc(fmtShort(dt))}">${icon('x')}</button></span>`).join('')}</div>` : '<p class="hint" style="margin-top:8px">Nessuna data scelta.</p>'}`;
+
+  return `
+    <span class="label">Quando si fa</span>
+    <div class="plan-modes" style="margin:8px 0 12px">
+      ${PLAN_MODES.map((m) => `<button class="${p.mode === m.id ? 'on' : ''}" data-plan-mode="${m.id}" data-work="${i}"><b>${m.label}</b><small>${m.hint}</small></button>`).join('')}
+    </div>
+    ${p.mode === 'mensile' ? dayGrid : ''}
+    ${p.mode === 'settimanale' ? weekPick : ''}
+    ${p.mode === 'date' ? datePick : ''}
+    ${p.mode === 'date' ? '' : `<div style="margin-top:14px">${monthsPicker(w, i)}</div>`}
+    ${found?.dates ? `
+      <div class="plan-result ${found.dates.length < found.toPlan ? 'warn' : ''}">
+        ${icon(found.dates.length < found.toPlan ? 'alert' : 'check')}
+        <span>${found.dates.length === found.toPlan
+          ? `<b>${plural(found.toPlan, 'intervento', 'interventi')}</b> in calendario: ${found.dates.slice(0, 4).map((x) => esc(fmtShort(x))).join(' · ')}${found.dates.length > 4 ? ` · +${found.dates.length - 4}` : ''}`
+          : `Con questi giorni l'app trova <b>${found.dates.length}</b> date su ${found.toPlan}: ${found.dates.length ? 'le altre resteranno “senza data”.' : 'scegli i giorni o allarga i mesi.'}`}</span>
+      </div>` : ''}
+    ${p.mode === 'auto' ? '' : `
+      <label class="check-row" style="margin-top:12px">
+        <input type="checkbox" data-avoid="${i}" ${p.avoidClash ? 'checked' : ''}>
+        <span><b class="strong">Non sovrapporre i lavori</b><small>Se il giorno è già pieno o c'è già un lavoro in questo condominio, sposta al giorno vicino</small></span>
+      </label>`}`;
+}
+
 function stepWorks() {
   const d = draft;
   const pastStart = d.data.contractStart < todayISO();
-  const active = d.works.filter((w) => w.qty > 0).length;
+  const activeWorks = d.works.filter((w) => w.qty > 0);
+  const active = activeWorks.length;
+  // date che verrebbero messe in calendario, così si vede subito l'effetto dei giorni scelti
+  let preview = [];
+  try {
+    preview = store.previewPlan({ ...d.data, works: activeWorks }, d.id);
+  } catch { /* periodo non ancora valido */ }
+  const foundOf = (w) => preview.find((r) => r.work === w);
+
   return `
     <div class="works-head" id="lavori">
-      <h2>Lavori da fare e quantità</h2>
-      <p class="small muted">Per ogni lavoro previsto dal contratto tocca <b class="strong">+</b> fino al numero di volte (es. 10 sfalci l'anno), poi controlla i mesi. ${active ? `<b class="strong">${plural(active, 'lavoro inserito', 'lavori inseriti')}</b>` : ''}</p>
+      <h2>Lavori da fare, quantità e giorni</h2>
+      <p class="small muted">Per ogni lavoro del contratto tocca <b class="strong">+</b> fino al numero di volte (es. 10 sfalci l'anno), poi scegli tu <b class="strong">in che giorni</b> si fa. ${active ? `<b class="strong">${plural(active, 'lavoro inserito', 'lavori inseriti')}</b>` : ''}</p>
     </div>
     ${!d.works.length ? `<div class="plan-warn">${icon('alert')}<span>Elenco dei lavori non ancora disponibile: controlla la connessione.</span></div>` : ''}
     ${d.works.map((w, i) => {
       const type = store.typeById(w.typeId);
       const on = w.qty > 0;
+      const open = on && d.open === i;
       const badge = w.found ? (w.qtyFound ? `<span class="found">${icon('sparkles')}Dal contratto</span>` : `<span class="found warn">${icon('alert')}Controlla quantità</span>`) : '';
       return `
       <div class="work-edit ${on ? 'on' : ''}" style="--c:${type.color}">
@@ -198,7 +270,7 @@ function stepWorks() {
           ${typeIcon(type, 'sm')}
           <div class="grow">
             <strong>${esc(type.name)}</strong> ${badge}
-            <div class="small muted">${on ? `${plural(w.qty, 'volta', 'volte')} · ${monthsLabel(w.months)}` : 'Non previsto · tocca +'}</div>
+            <div class="small muted">${on ? `${plural(w.qty, 'volta', 'volte')} · ${esc(planLabel(w.plan))}` : 'Non previsto · tocca +'}</div>
           </div>
           <div class="stepper">
             <button data-qty="${i}" data-delta="-1" aria-label="Meno">${icon('minus')}</button>
@@ -206,13 +278,13 @@ function stepWorks() {
             <button data-qty="${i}" data-delta="1" aria-label="Più">${icon('plus')}</button>
           </div>
         </div>
+        ${on ? `
+        <button class="work-toggle" data-open="${i}">${icon(open ? 'up' : 'down')}${open ? 'Chiudi i giorni' : 'Scegli i giorni'}<span class="grow"></span><span class="small muted">${esc(monthsLabel(w.months))}</span></button>` : ''}
+        ${open ? `
         <div class="work-edit-more">
-          <span class="label">In quali mesi</span>
-          <div class="months" style="--c:${type.color};margin-top:8px">
-            ${MONTH_INITIALS.map((l, m) => `<button class="${w.months.includes(m + 1) ? 'on' : ''}" data-month="${m + 1}" data-work="${i}" aria-label="${MONTHS_SHORT[m]}">${l}<small>${MONTHS_SHORT[m]}</small></button>`).join('')}
-          </div>
+          ${planEditor(w, i, foundOf(w))}
           ${pastStart ? `
-          <div class="row-between" style="margin-top:12px">
+          <div class="row-between" style="margin-top:14px">
             <span class="small"><b class="strong">Già fatti</b> prima di usare l'app</span>
             <div class="mini-stepper"><div class="stepper">
               <button data-done-before="${i}" data-delta="-1" aria-label="Meno">${icon('minus')}</button>
@@ -221,7 +293,7 @@ function stepWorks() {
             </div></div>
           </div>` : ''}
           ${w.snippet ? `<p class="snippet">“${esc(w.snippet)}”</p>` : ''}
-        </div>
+        </div>` : ''}
       </div>`;
     }).join('')}
     <button class="btn btn-ghost btn-block" style="margin-top:12px" data-new-type>${icon('plus')}Aggiungi un altro tipo di lavoro</button>`;
@@ -235,30 +307,41 @@ function stepPreview() {
   const works = d.works.filter((w) => w.qty > 0);
   const from = d.data.contractStart > t ? d.data.contractStart : t;
   const state = store.getState();
-  const load = {};
-  for (const j of state.jobs) if (j.date && !store.isDone(j) && j.condoId !== d.id) load[j.date] = (load[j.date] || 0) + 1;
 
-  const rows = works.map((w) => {
-    const doneJobs = d.id ? state.jobs.filter((j) => j.workId === w.id && store.isDone(j)).length : 0;
-    const toPlan = Math.max(0, w.qty - w.doneBefore - doneJobs);
-    const dates = planDates({ from, to: d.data.contractEnd, months: w.months, count: toPlan, workDays: state.settings.workDays, load });
-    return { w, type: store.typeById(w.typeId), toPlan, dates };
-  });
+  const rows = store.previewPlan({ ...d.data, works }, d.id).map((r) => ({ ...r, w: r.work, type: store.typeById(r.work.typeId) }));
   const months = periodMonths(d.data.contractStart, d.data.contractEnd);
   const total = rows.reduce((a, r) => a + r.toPlan, 0);
   const missing = rows.filter((r) => r.dates.length < r.toPlan);
+  const moved = rows.flatMap((r) => r.moved.map((m) => ({ ...m, type: r.type })));
   const days = state.settings.workDays.map((x) => WEEKDAYS_SHORT[x]).join(', ');
 
   return `
     <div class="card">
       <div class="row">
-        <span class="option-ic">${icon('sparkles')}</span>
+        <span class="option-ic">${icon('calendar')}</span>
         <div class="grow">
           <strong class="strong" style="font-size:17px">${plural(total, 'intervento', 'interventi')} da mettere in calendario</strong>
           <p class="small muted">Dal ${fmtLong(from)} al ${fmtLong(d.data.contractEnd, true)} · giorni lavorativi: ${days}</p>
         </div>
       </div>
     </div>
+
+    <div class="section">
+      <div class="section-head"><h2>Giorni scelti</h2></div>
+      ${rows.map((r) => `
+        <div class="card plan-days" style="--c:${r.type.color}">
+          <div class="row">
+            ${typeIcon(r.type, 'sm')}
+            <div class="grow">
+              <strong>${esc(r.type.name)}</strong>
+              <div class="small muted">${esc(planLabel(r.w.plan))} · ${plural(r.dates.length, 'data', 'date')}</div>
+            </div>
+          </div>
+          ${r.dates.length ? `<div class="date-chips">${r.dates.map((x) => `<span class="date-chip plain">${esc(fmtShort(x))}<small>${parseISO(x).getFullYear()}</small></span>`).join('')}</div>` : '<p class="small muted" style="margin-top:8px">Nessuna data: resteranno da programmare.</p>'}
+        </div>`).join('')}
+      ${!rows.length ? '<div class="card"><p class="small muted">Nessun lavoro inserito.</p></div>' : ''}
+    </div>
+
     <div class="card">
       <span class="label">Distribuzione nei mesi</span>
       <div class="plan-scroll" style="margin-top:10px">
@@ -278,8 +361,9 @@ function stepPreview() {
           </tbody>
         </table>
       </div>
-      ${missing.length ? `<div class="plan-warn">${icon('alert')}<span>${missing.map((r) => `<b>${esc(r.type.name)}</b>: ${r.toPlan - r.dates.length} senza giorni disponibili nei mesi scelti`).join('<br>')}.<br>Resteranno “senza data” e potrai sceglierla dalla Home.</span></div>` : ''}
-      <p class="small muted" style="margin-top:12px">Gli interventi vengono distribuiti in modo regolare e sui giorni meno carichi. Ogni intervento si può poi spostare dal calendario.</p>
+      ${moved.length ? `<div class="plan-warn ok">${icon('redo')}<span>${plural(moved.length, 'intervento spostato', 'interventi spostati')} al giorno libero più vicino per non sovrapporli: ${moved.slice(0, 3).map((m) => `<b>${esc(m.type.name)}</b> dal ${esc(fmtShort(m.from))} al ${esc(fmtShort(m.to))}`).join(', ')}${moved.length > 3 ? '…' : ''}</span></div>` : ''}
+      ${missing.length ? `<div class="plan-warn">${icon('alert')}<span>${missing.map((r) => `<b>${esc(r.type.name)}</b>: ${r.toPlan - r.dates.length} senza giorno disponibile`).join('<br>')}.<br>Resteranno “senza data” e potrai sceglierla dalla Home o dal calendario.</span></div>` : ''}
+      <p class="small muted" style="margin-top:12px">Ogni intervento si può comunque spostare dal calendario, anche uno per volta.</p>
     </div>`;
 }
 
@@ -293,8 +377,15 @@ function validate() {
     if (d.data.contractEnd < d.data.contractStart) return 'La fine del contratto è prima dell’inizio';
     const active = d.works.filter((w) => w.qty > 0);
     if (!active.length) return 'Inserisci almeno un lavoro da fare (tocca +)';
-    const noMonths = active.find((w) => !w.months.length);
+    const noMonths = active.find((w) => w.plan.mode !== 'date' && !w.months.length);
     if (noMonths) return `Scegli almeno un mese per ${store.typeById(noMonths.typeId).name}`;
+    const noDays = active.find((w) => (w.plan.mode === 'mensile' && !w.plan.days.length)
+      || (w.plan.mode === 'settimanale' && !w.plan.weekdays.length)
+      || (w.plan.mode === 'date' && !w.plan.dates.length));
+    if (noDays) {
+      d.open = d.works.indexOf(noDays);
+      return `Scegli i giorni per ${store.typeById(noDays.typeId).name} (oppure “Sceglie l’app”)`;
+    }
   }
   return '';
 }
@@ -319,7 +410,8 @@ function openNewTypeSheet() {
       const name = s.el.querySelector('#nt-name').value.trim();
       if (!name) { toast('Scrivi il nome del lavoro'); return; }
       const type = store.saveWorkType({ name, icon: 'tool', color, months: [...months].sort((a, b) => a - b) });
-      draft.works.push({ typeId: type.id, qty: 1, months: [...type.months], doneBefore: 0, notes: '' });
+      draft.works.push({ ...newWork(type), qty: 1 });
+      draft.open = draft.works.length - 1;
       s.close();
       rerender();
     }
@@ -353,8 +445,14 @@ function mount(root) {
 
   root.addEventListener('change', (e) => {
     const el = e.target;
-    if (el.dataset.qtyInput !== undefined) { d.works[el.dataset.qtyInput].qty = Math.max(0, Math.min(200, Number(el.value) || 0)); rerender(); }
+    if (el.dataset.qtyInput !== undefined) {
+      const i = Number(el.dataset.qtyInput);
+      d.works[i].qty = Math.max(0, Math.min(200, Number(el.value) || 0));
+      if (d.works[i].qty > 0 && d.open === null) d.open = i;
+      rerender();
+    }
     if (el.dataset.doneInput !== undefined) { d.works[el.dataset.doneInput].doneBefore = Math.max(0, Number(el.value) || 0); rerender(); }
+    if (el.dataset.avoid !== undefined) { d.works[el.dataset.avoid].plan.avoidClash = el.checked; rerender(); }
     if ('pdf' in el.dataset && el.files?.[0]) readPdf(el.files[0]);
   });
 
@@ -400,8 +498,60 @@ function mount(root) {
       return;
     }
     if (ds.qty !== undefined) {
-      const w = d.works[ds.qty];
+      const i = Number(ds.qty);
+      const w = d.works[i];
       w.qty = Math.max(0, Math.min(200, w.qty + Number(ds.delta)));
+      // il primo lavoro inserito apre subito la scelta dei giorni
+      if (w.qty > 0 && d.open === null) d.open = i;
+      if (!w.qty && d.open === i) d.open = null;
+      rerender();
+      return;
+    }
+    if (ds.open !== undefined) {
+      const i = Number(ds.open);
+      d.open = d.open === i ? null : i;
+      rerender();
+      return;
+    }
+    if (ds.planMode) {
+      const w = d.works[ds.work];
+      w.plan = { ...w.plan, mode: ds.planMode };
+      rerender();
+      return;
+    }
+    if (ds.dayMonth) {
+      const w = d.works[ds.work];
+      const n = Number(ds.dayMonth);
+      w.plan.days = w.plan.days.includes(n) ? w.plan.days.filter((x) => x !== n) : [...w.plan.days, n].sort((a, b) => a - b);
+      rerender();
+      return;
+    }
+    if (ds.weekday !== undefined) {
+      const w = d.works[ds.work];
+      const n = Number(ds.weekday);
+      w.plan.weekdays = w.plan.weekdays.includes(n) ? w.plan.weekdays.filter((x) => x !== n) : [...w.plan.weekdays, n].sort((a, b) => a - b);
+      rerender();
+      return;
+    }
+    if (ds.every) {
+      d.works[ds.work].plan.every = Number(ds.every);
+      rerender();
+      return;
+    }
+    if (ds.addDate !== undefined) {
+      const i = Number(ds.addDate);
+      const input = root.querySelector(`[data-new-date="${i}"]`);
+      const val = input?.value;
+      if (!val) { toast('Scegli prima una data'); return; }
+      if (val < d.data.contractStart || val > d.data.contractEnd) { toast('La data è fuori dal periodo del contratto'); return; }
+      const plan = d.works[i].plan;
+      if (!plan.dates.includes(val)) plan.dates = [...plan.dates, val].sort();
+      rerender();
+      return;
+    }
+    if (ds.delDate) {
+      const plan = d.works[ds.work].plan;
+      plan.dates = plan.dates.filter((x) => x !== ds.delDate);
       rerender();
       return;
     }

@@ -1,4 +1,6 @@
 // Home per chi gestisce (Martina, Nicolas): situazione generale e cosa manca per ogni condominio.
+// Alessandro (amministrazione) vede la stessa Home ma in ordine diverso: prima le scadenze
+// dei contratti e gli appuntamenti, perché segue rinnovi e pagamenti.
 // I giardinieri vedono direttamente "Oggi".
 import * as store from '../store.js';
 import { icon } from '../icons.js';
@@ -6,8 +8,9 @@ import { rerender, isWide } from '../ui.js';
 import { jobCard, eventCard, progressBar, sectionHead, typeIcon, emptyState, avatar } from '../components.js';
 import { openAddJobSheet } from './job-sheet.js';
 import { openEventForm } from './event-sheet.js';
+import { ROLES } from '../data.js';
 import * as today from './today.js';
-import { esc, todayISO, fmtLong, startOfWeek, addDays, currentSeasonRange, fmtShort, parseISO } from '../utils.js';
+import { esc, todayISO, fmtLong, fmtDateNum, startOfWeek, addDays, currentSeasonRange, fmtShort, parseISO, plural } from '../utils.js';
 
 let showAllOverdue = false;
 
@@ -18,6 +21,7 @@ export function render() {
 
   const wide = isWide();
   const user = store.currentUser();
+  const amministra = ROLES[user.role]?.home === 'scadenze';
   const state = store.getState();
   const t = todayISO();
 
@@ -42,7 +46,15 @@ export function render() {
   const overdueLimit = wide ? 6 : 4;
   const shownOverdue = showAllOverdue ? overdue : overdue.slice(0, overdueLimit);
 
-  const actions = `
+  const actions = amministra
+    ? `
+    <div class="hero-actions">
+      <button class="btn btn-primary" data-new-event>${icon('bell')}Nuovo appuntamento</button>
+      <a class="btn btn-soft" href="#/calendario">${icon('calendar')}Calendario</a>
+      <a class="btn btn-ghost" href="#/preventivi">${icon('file')}Crea preventivo</a>
+      <a class="btn btn-ghost" href="#/condomini">${icon('building')}Condomini</a>
+    </div>`
+    : `
     <div class="hero-actions">
       <a class="btn btn-primary" href="#/condomini/nuovo">${icon('plus')}Nuovo condominio</a>
       <button class="btn btn-soft" data-new-event>${icon('bell')}Nuovo appuntamento</button>
@@ -59,6 +71,60 @@ export function render() {
         ? `<div class="list">${upcoming.slice(0, 6).map((ev) => eventCard(ev, { showDate: true })).join('')}</div>
            ${upcoming.length > 6 ? `<p class="small muted" style="margin:8px 2px">E altri ${upcoming.length - 6} nel calendario.</p>` : ''}`
         : `<div class="week-empty">Nessun appuntamento nei prossimi 7 giorni. <button class="link-btn" data-new-event>${icon('plus')}Aggiungi</button></div>`}
+    </div>`;
+
+  // Contratti in scadenza (o già scaduti): rinnovo e fattura finale
+  const deadlines = store.contractDeadlines(120);
+  const expiring = deadlines.filter((x) => x.days >= 0).length;
+  const expired = deadlines.filter((x) => x.days < 0).length;
+  const deadlinesSec = `
+    <div class="section" id="scadenze">
+      ${sectionHead('Scadenze dei contratti', '<a class="link-btn" href="#/condomini">Tutti i condomini</a>')}
+      <p class="small muted" style="margin:-4px 2px 10px">Contratti che finiscono entro 4 mesi: da rinnovare e da fatturare.</p>
+      ${deadlines.length ? `
+      <div class="card card-flush divided">
+        ${deadlines.map(({ condo, days, stats }) => `
+          <a class="deadline-row ${days < 0 ? 'is-late' : days <= 30 ? 'is-soon' : ''}" href="#/condomini/${condo.id}">
+            <span class="deadline-when">
+              <strong>${days < 0 ? 'Scaduto' : days === 0 ? 'Oggi' : days}</strong>
+              <small>${days < 0 ? `da ${-days} g` : days === 0 ? 'scade' : days === 1 ? 'giorno' : 'giorni'}</small>
+            </span>
+            <span class="grow">
+              <strong class="strong ellipsis">${esc(condo.name)}</strong>
+              <span class="small muted" style="display:block">Fino al ${fmtDateNum(condo.contractEnd)}${condo.adminName ? ` · ${esc(condo.adminName)}` : ''}</span>
+              <span class="small ${stats.remaining ? 'is-amber' : 'muted'}" style="display:block">${stats.remaining ? `Mancano ancora ${plural(stats.remaining, 'intervento', 'interventi')}` : 'Tutti gli interventi sono stati fatti'}</span>
+            </span>
+            ${icon('right')}
+          </a>`).join('')}
+      </div>` : `<div class="week-empty">Nessun contratto in scadenza nei prossimi 4 mesi.</div>`}
+    </div>`;
+
+  const kpisAmm = `
+    <div class="kpis">
+      <button class="kpi kpi-hero ${expired ? 'kpi-red' : ''}" data-scroll="scadenze" style="text-align:left">
+        <span class="kpi-ic">${icon('file')}</span>
+        <span class="kpi-num">${expiring + expired}</span>
+        <span class="kpi-label">Contratti in scadenza</span>
+        <span class="kpi-sub">${expired ? `${expired} già scaduti` : 'entro 4 mesi'}</span>
+      </button>
+      <a class="kpi" href="#/calendario">
+        <span class="kpi-ic">${icon('bell')}</span>
+        <span class="kpi-num">${store.eventsBetween(t, addDays(t, 7)).filter((ev) => !ev.done).length}</span>
+        <span class="kpi-label">Appuntamenti</span>
+        <span class="kpi-sub">prossimi 7 giorni</span>
+      </a>
+      <a class="kpi" href="#/condomini">
+        <span class="kpi-ic">${icon('building')}</span>
+        <span class="kpi-num">${state.condos.length}</span>
+        <span class="kpi-label">Condomini</span>
+        <span class="kpi-sub">sotto contratto</span>
+      </a>
+      <button class="kpi ${overdue.length ? 'kpi-red' : ''}" data-scroll="overdue" style="text-align:left">
+        <span class="kpi-ic">${icon('alert')}</span>
+        <span class="kpi-num">${overdue.length}</span>
+        <span class="kpi-label">In ritardo</span>
+        <span class="kpi-sub">lavori da riprogrammare</span>
+      </button>
     </div>`;
 
   const kpis = `
@@ -171,6 +237,29 @@ export function render() {
       <h1>${greeting}, ${esc(user.name)}</h1>
     </div>`;
 
+  // Agenda dei prossimi giorni: appuntamenti e lavori, giorno per giorno
+  const weekAgendaSec = `
+    <div class="section">
+      ${sectionHead('I prossimi giorni', '<a class="link-btn" href="#/calendario">Calendario</a>')}
+      <div class="card card-flush divided">
+        ${Array.from({ length: 7 }, (_, i) => addDays(t, i)).map((iso) => {
+          const dayJobs = store.jobsOn(iso);
+          const dayEvents = store.eventsOn(iso);
+          if (!dayJobs.length && !dayEvents.length) return '';
+          const condi = [...new Set(dayJobs.map((j) => store.condoById(j.condoId)?.name).filter(Boolean))];
+          return `
+          <a class="agenda-row ${iso === t ? 'today' : ''}" href="#/calendario">
+            <span class="agenda-day"><strong>${parseISO(iso).getDate()}</strong><small>${fmtShort(iso).split(' ')[0]}</small></span>
+            <span class="grow">
+              ${dayEvents.length ? `<span class="strong ellipsis">${dayEvents.map((ev) => esc(ev.title)).join(' · ')}</span>` : ''}
+              <span class="small ${dayEvents.length ? 'muted' : 'strong'} ellipsis" style="display:block">${dayJobs.length ? `${plural(dayJobs.length, 'lavoro', 'lavori')}: ${condi.slice(0, 2).map(esc).join(', ')}${condi.length > 2 ? ` +${condi.length - 2}` : ''}` : 'Solo appuntamenti'}</span>
+            </span>
+            ${icon('right')}
+          </a>`;
+        }).join('') || '<div class="week-empty">Niente in programma nei prossimi 7 giorni.</div>'}
+      </div>
+    </div>`;
+
   // Solo il titolare: a colpo d'occhio come sta andando la giornata di ognuno
   const weekTo = addDays(weekFrom, 6);
   const crew = store.can('squadra')
@@ -190,22 +279,33 @@ export function render() {
       </div>
     </div>` : '';
 
-  const html = wide
-    ? `
+  const html = amministra
+    ? (wide
+      ? `
+      <div class="home-head">${hello}${actions}</div>
+      ${kpisAmm}
+      <div class="cols">
+        <div class="cols-main">${deadlinesSec}${eventsSec}${overdueSec}${remainingSec}</div>
+        <aside class="cols-side">${weekAgendaSec}${unscheduledSec}${seasonSec}</aside>
+      </div>`
+      : `${hello}${kpisAmm}${actions}${deadlinesSec}${eventsSec}${weekAgendaSec}${overdueSec}${unscheduledSec}${remainingSec}${seasonSec}`)
+    : (wide
+      ? `
       <div class="home-head">${hello}${actions}</div>
       ${kpis}
       <div class="cols">
-        <div class="cols-main">${overdueSec}${unscheduledSec}${remainingSec}</div>
+        <div class="cols-main">${overdueSec}${unscheduledSec}${remainingSec}${deadlinesSec}</div>
         <aside class="cols-side">${eventsSec}${crewSec}${todaySec}${seasonSec}</aside>
       </div>`
-    : `${hello}${kpis}${actions}${eventsSec}${crewSec}${overdueSec}${unscheduledSec}${remainingSec}${seasonSec}`;
+      : `${hello}${kpis}${actions}${eventsSec}${crewSec}${overdueSec}${unscheduledSec}${remainingSec}${deadlinesSec}${seasonSec}`);
 
   return {
     title: 'Home',
     html,
     mount(root) {
       root.addEventListener('click', (e) => {
-        if (e.target.closest('[data-scroll]')) document.getElementById('overdue')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        const sc = e.target.closest('[data-scroll]');
+        if (sc) document.getElementById(sc.dataset.scroll)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         if (e.target.closest('[data-toggle-overdue]')) { showAllOverdue = !showAllOverdue; rerender(); }
         if (e.target.closest('[data-add-job]')) openAddJobSheet();
         if (e.target.closest('[data-new-event]')) openEventForm({ date: todayISO() });

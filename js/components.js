@@ -1,6 +1,6 @@
 // Pezzi di interfaccia ripetuti in più schermate.
 import { icon } from './icons.js';
-import { esc, relDay, initials, seasonsFor, todayISO, WEEKDAYS, WEEKDAYS_SHORT } from './utils.js';
+import { esc, relDay, initials, seasonsFor, todayISO, fmtDuration, WEEKDAYS, WEEKDAYS_SHORT } from './utils.js';
 import * as store from './store.js';
 import { eventKind } from './data.js';
 
@@ -83,11 +83,12 @@ export function eventCard(ev, { showDate = false } = {}) {
 export function jobCard(job, { showDate = false, showCondo = true, actions = false } = {}) {
   const type = store.typeById(job.typeId);
   const condo = store.condoById(job.condoId);
-  const { n, of } = store.jobNumber(job);
+  const num = store.jobNumber(job);
   const done = store.isDone(job);
   const late = !done && job.date && job.date < todayISO();
   const postponed = !done && job.log?.some((l) => l.type === 'rimandato');
   const doneBy = done ? store.memberById(job.doneBy) : null;
+  const info = store.doneInfo(job);
 
   const chips = [];
   if (showDate || late || !job.date) {
@@ -95,6 +96,7 @@ export function jobCard(job, { showDate = false, showCondo = true, actions = fal
   }
   if (postponed) chips.push(`<span class="chip chip-amber">${icon('redo')}Rimandato</span>`);
   if (done) chips.push(`<span class="chip chip-green">${icon('check')}Fatto${doneBy ? ` da ${esc(doneBy.name)}` : ''}</span>`);
+  if (info?.minutes) chips.push(`<span class="chip">${icon('clock')}${esc(fmtDuration(info.minutes))}</span>`);
   if (job.note) chips.push(`<span class="chip">${icon('note')}Nota</span>`);
 
   return `
@@ -103,8 +105,9 @@ export function jobCard(job, { showDate = false, showCondo = true, actions = fal
       <button class="job-main" data-action="open-job" data-id="${job.id}">
         ${typeIcon(type)}
         <span class="job-text">
-          <span class="job-title">${esc(type.name)} <span class="job-count">${n} di ${of}</span></span>
+          <span class="job-title">${esc(type.name)} <span class="job-count">${num ? `${num.n} di ${num.of}` : 'in più'}</span></span>
           ${showCondo ? `<span class="job-sub">${esc(condo?.name || 'Condominio eliminato')}</span>` : ''}
+          ${info?.note ? `<span class="event-note">${esc(info.note)}</span>` : ''}
           ${chips.length || job.assignees?.length ? `<span class="job-meta">${chips.join('')}${avatars(job.assignees)}</span>` : ''}
         </span>
       </button>

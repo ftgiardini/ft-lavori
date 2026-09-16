@@ -226,6 +226,62 @@
 .plan-table td.total { background: var(--green-900); color: #fff; }
 .plan-warn { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: 14px; background: var(--amber-50); color: #8A5F0B; font-size: 13.5px; margin-top: 12px; }
 .plan-warn .ic { color: var(--amber); margin-top: 1px; }
+.plan-warn.ok { background: var(--green-100); color: var(--green-700); }
+.plan-warn.ok .ic { color: var(--green-700); }
+
+/* Scelta dei giorni di un lavoro */
+.work-toggle { display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 10px; padding: 8px 2px 0; border-top: 1px solid var(--line); font-size: 13.5px; font-weight: 700; color: var(--green-700); }
+.work-toggle .ic { width: 17px; height: 17px; }
+.plan-modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.plan-modes button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 9px 11px; border-radius: 12px; border: 1.5px solid var(--line); background: #fff; text-align: left; }
+.plan-modes button b { font-size: 13.5px; font-weight: 800; color: var(--ink); }
+.plan-modes button small { font-size: 11.5px; color: var(--muted); line-height: 1.3; }
+.plan-modes button.on { border-color: var(--green); background: var(--green-50); }
+.plan-modes button.on b { color: var(--green-700); }
+.daygrid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 5px; }
+.daygrid button { height: 38px; border-radius: 10px; background: #F1F4F0; font-weight: 800; font-size: 14px; color: var(--text); }
+.daygrid button.on { background: var(--c, var(--green)); color: #fff; }
+.date-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.date-chip { display: inline-flex; align-items: center; gap: 4px; padding: 5px 6px 5px 10px; border-radius: 999px; background: var(--green-50); color: var(--green-700); font-size: 12.5px; font-weight: 700; }
+.date-chip.plain { background: #F1F4F0; color: var(--text); padding: 5px 10px; }
+.date-chip small { color: var(--muted); font-weight: 600; }
+.date-chip button { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: #fff; color: var(--muted); }
+.date-chip button .ic { width: 13px; height: 13px; }
+.plan-result { display: flex; gap: 8px; align-items: flex-start; margin-top: 12px; padding: 10px 12px; border-radius: 12px; background: var(--green-50); color: var(--green-700); font-size: 13px; }
+.plan-result.warn { background: var(--amber-50); color: #8A5F0B; }
+.plan-result .ic { width: 17px; height: 17px; flex: none; margin-top: 1px; }
+.check-row { display: flex; gap: 10px; align-items: flex-start; background: #F7F9F6; border-radius: 12px; padding: 10px 12px; cursor: pointer; }
+.check-row input { width: 20px; height: 20px; flex: none; margin-top: 1px; accent-color: var(--green); }
+.check-row small { display: block; color: var(--muted); font-size: 12.5px; }
+.plan-days { border-left: 4px solid var(--c); }
+.plan-days + .plan-days { margin-top: 10px; }
+
+/* Registrazione del lavoro fatto */
+.done-hero { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 14px; background: var(--green-50); color: var(--green-700); }
+.done-hero .ic { width: 26px; height: 26px; flex: none; }
+.done-hero strong { display: block; color: var(--green-700); font-size: 15px; }
+.done-hero small { color: var(--text); font-size: 12.5px; }
+
+/* Scadenze dei contratti e agenda (Home di chi segue rinnovi e pagamenti) */
+.deadline-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; color: var(--text); }
+.deadline-row:hover { background: #FAFCF9; }
+.deadline-row > .ic:last-child { color: #BAC3BB; flex: none; }
+.deadline-when { flex: none; width: 54px; text-align: center; border-radius: 12px; padding: 6px 2px; background: #F1F4F0; }
+.deadline-when strong { display: block; font-size: 17px; font-weight: 800; color: var(--ink); line-height: 1.1; }
+.deadline-when small { font-size: 10.5px; color: var(--muted); font-weight: 700; }
+.deadline-row.is-soon .deadline-when { background: var(--amber-50); }
+.deadline-row.is-soon .deadline-when strong { color: #8A5F0B; }
+.deadline-row.is-late .deadline-when { background: var(--red-50); }
+.deadline-row.is-late .deadline-when strong, .deadline-row.is-late .deadline-when small { color: var(--red); }
+.is-amber { color: #8A5F0B; font-weight: 700; }
+.agenda-row { display: flex; align-items: center; gap: 12px; padding: 11px 16px; color: var(--text); }
+.agenda-row:hover { background: #FAFCF9; }
+.agenda-row > .ic:last-child { color: #BAC3BB; flex: none; }
+.agenda-day { flex: none; width: 44px; text-align: center; }
+.agenda-day strong { display: block; font-size: 17px; font-weight: 800; color: var(--ink); line-height: 1.1; }
+.agenda-day small { font-size: 10.5px; color: var(--muted); font-weight: 700; text-transform: uppercase; }
+.agenda-row.today .agenda-day strong { color: var(--green-700); }
+.agenda-row.today { background: var(--green-50); }
 
 /* ---------- Altro ---------- */
 .profile { display: flex; align-items: center; gap: 14px; }
@@ -309,6 +365,7 @@
 .role-tag { display: inline-block; font-size: 11.5px; font-weight: 800; padding: 2px 8px; border-radius: 7px; white-space: nowrap; }
 .role-titolare { background: var(--green-900); color: #fff; }
 .role-ufficio { background: var(--green-100); color: var(--green-700); }
+.role-amministrazione { background: #E6EEF6; color: #2F5C86; }
 .role-giardiniere { background: #EEF1ED; color: var(--text); }
 .role-options { display: flex; flex-direction: column; gap: 8px; }
 .role-option { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 11px 13px; border-radius: 13px; border: 1.5px solid var(--line); background: #fff; text-align: left; }

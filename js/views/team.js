@@ -6,7 +6,7 @@ import { openSheet, toast, confirmDialog, isWide } from '../ui.js';
 import { avatar, memberSub, progressBar, sectionHead, emptyState } from '../components.js';
 import { WORK_COLORS, ROLES } from '../data.js';
 import { showMember } from './calendar.js';
-import { esc, todayISO, startOfWeek, addDays, fmtTime, fmtShort, WEEKDAYS_SHORT } from '../utils.js';
+import { esc, todayISO, startOfWeek, addDays, fmtTime, fmtShort, fmtDuration, WEEKDAYS_SHORT } from '../utils.js';
 
 export function render() {
   if (!store.can('squadra')) {
@@ -56,11 +56,13 @@ export function render() {
           const condo = store.condoById(job.condoId);
           const verb = entry.type === 'fatto' ? 'ha fatto' : entry.type === 'rimandato' ? 'ha rimandato' : 'ha tolto la spunta a';
           const extra = entry.type === 'rimandato' && entry.to ? ` a ${fmtShort(entry.to)}${entry.reason ? ` · ${esc(entry.reason)}` : ''}` : '';
+          const time = entry.type === 'fatto' && entry.minutes ? ` <span class="chip">${icon('clock')}${esc(fmtDuration(entry.minutes))}</span>` : '';
           return `
           <button class="activity-row" data-action="open-job" data-id="${job.id}">
             ${who ? avatar(who, 'sm') : `<span class="avatar avatar-sm" style="--c:#B5BDB6">?</span>`}
             <span class="grow">
-              <span class="activity-text"><b>${esc(who?.name || 'Qualcuno')}</b> ${verb} <b>${esc(type.name)}</b>${extra}</span>
+              <span class="activity-text"><b>${esc(who?.name || 'Qualcuno')}</b> ${verb} <b>${esc(type.name)}</b>${extra}${time}</span>
+              ${entry.note ? `<span class="small ellipsis" style="display:block">“${esc(entry.note)}”</span>` : ''}
               <span class="small muted ellipsis" style="display:block">${esc(condo?.name || '')} · ${fmtTime(entry.at)}</span>
             </span>
             <span class="activity-dot t-${entry.type}"></span>

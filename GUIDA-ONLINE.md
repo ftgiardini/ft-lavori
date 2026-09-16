@@ -44,7 +44,7 @@ Così nessun estraneo può crearsi un account: gli accessi li create solo voi.
 | Alessandro | `alessandro@lavori.ftgiardini.com` |
 | Leonardo | `leonardo@lavori.ftgiardini.com` |
 | Manuel | `manuel@lavori.ftgiardini.com` |
-| Tomas | `tomas@lavori.ftgiardini.com` |
+| Thomas | `tomas@lavori.ftgiardini.com` |
 
 - **Password: scrivila tutta in MAIUSCOLO**, almeno 6 caratteri (nell'app poi si può scrivere anche in minuscolo).
 - Consiglio: **password nuove**, non quelle usate nella versione di prova.
@@ -101,7 +101,8 @@ Primo accesso: tocca il tuo nome e scrivi la password.
 
 ## Aggiornamenti del database
 
-Quando l'app riceve una funzione nuova che usa il database (es. **appuntamenti e promemoria**),
+Quando l'app riceve una funzione nuova che usa il database (es. **appuntamenti e promemoria**,
+oppure il livello **Amministrazione** di Alessandro e il nome **Thomas**),
 va rieseguito lo stesso file una volta: apri `supabase/schema.sql` su GitHub → copia tutto →
 Supabase → **SQL Editor** → incolla → **Run**. Non cancella nessun dato: aggiunge solo quello che manca.
 
