@@ -102,7 +102,7 @@ Primo accesso: tocca il tuo nome e scrivi la password.
 ## Aggiornamenti del database
 
 Quando l'app riceve una funzione nuova che usa il database (es. **appuntamenti e promemoria**,
-oppure il livello **Amministrazione** di Alessandro e il nome **Thomas**),
+oppure il livello **Amministrazione** di Alessandro, i **Pagamenti** e il nome **Thomas**),
 va rieseguito lo stesso file una volta: apri `supabase/schema.sql` su GitHub → copia tutto →
 Supabase → **SQL Editor** → incolla → **Run**. Non cancella nessun dato: aggiunge solo quello che manca.
 
@@ -113,7 +113,9 @@ Supabase → **SQL Editor** → incolla → **Run**. Non cancella nessun dato: a
 - **Permessi controllati dal database**, non solo dall'app:
   - giardiniere: vede tutto, spunta/rimanda/annota solo i lavori assegnati a lui (o senza assegnazione)
   - ufficio (Martina): condomini, contratti, pianificazione, tipi di lavoro
-  - titolare (Nicolas): tutto, compresi squadra, password ed eliminazione condomini
+  - amministrazione (Alessandro): pagamenti dei clienti, contatti, scadenze, controllo dei lavori, condomini e appuntamenti
+  - titolare (Nicolas): tutto, compresi squadra, password, pagamenti ed eliminazione condomini
+  - i **pagamenti** li vedono solo Nicolas e Alessandro (Martina e i giardinieri no)
 - **Piano gratuito Supabase**: il progetto va in pausa dopo 7 giorni senza nessun accesso (con l'uso quotidiano non succede). Non ci sono backup automatici: da **Altro → Scarica backup** una volta a settimana.
 - **Password dimenticata**: Nicolas → Squadra → tocca la persona → Nuova password (serve il punto 5). In alternativa da Supabase → Authentication → Users → la persona → *Send password recovery* non funziona (email finte): usa invece i tre puntini → modifica password.
 - **Dati della versione di prova** già inseriti su un computer: su quel computer, *prima* di collegare Supabase, Altro → Scarica backup; poi, entrati come Nicolas nella versione online, Altro → Carica backup.
