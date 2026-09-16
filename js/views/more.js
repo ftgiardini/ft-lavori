@@ -94,7 +94,7 @@ export function render() {
         <button class="menu-row" data-export><span class="row-ic">${icon('download')}</span><span class="grow"><strong>Scarica backup</strong><small>Salva tutti i dati in un file</small></span></button>
         ${store.can('dati') ? `
         <label class="menu-row" style="cursor:pointer"><input type="file" accept="application/json,.json" hidden data-import><span class="row-ic">${icon('upload')}</span><span class="grow"><strong>Carica backup</strong><small>Sostituisce condomini e interventi con quelli del file</small></span></label>
-        <button class="menu-row danger" data-clear><span class="row-ic">${icon('trash')}</span><span class="grow"><strong>Inizia da zero</strong><small>Cancella condomini e interventi${store.isCloud ? ' per tutti' : ''} (resta la squadra)</small></span></button>` : ''}
+        <button class="menu-row danger" data-clear><span class="row-ic">${icon('trash')}</span><span class="grow"><strong>Inizia da zero</strong><small>Cancella condomini, interventi, appuntamenti e pagamenti${store.isCloud ? ' per tutti' : ''} (resta la squadra)</small></span></button>` : ''}
       </div>
       <p class="small muted" style="margin:10px 4px 0">${store.isCloud
         ? 'Dati salvati online e condivisi con tutta la squadra. Consiglio: scarica un backup ogni settimana.'
@@ -126,7 +126,7 @@ export function render() {
         }
         if ('export' in ds) exportBackup();
         if (!store.can('dati')) return;
-        if ('clear' in ds && await confirmDialog({ title: 'Iniziare da zero?', message: `Verranno cancellati tutti i condomini e gli interventi${store.isCloud ? ', per tutta la squadra' : ''}. Consiglio: scarica prima un backup.`, confirmText: 'Cancella tutto', danger: true })) {
+        if ('clear' in ds && await confirmDialog({ title: 'Iniziare da zero?', message: `Verranno cancellati tutti i condomini, gli interventi, gli appuntamenti e i pagamenti${store.isCloud ? ', per tutta la squadra' : ''}. Consiglio: scarica prima un backup.`, confirmText: 'Cancella tutto', danger: true })) {
           store.clearAll();
           toast('Dati cancellati');
         }

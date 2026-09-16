@@ -410,7 +410,7 @@ if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
 
 // Sul telefono l'app installata resta aperta in sottofondo per giorni e non ricarica i file:
 // ogni volta che torna in primo piano controlla se è uscita una versione nuova e si aggiorna.
-const APP_VERSION = 'v22';
+const APP_VERSION = 'v23';
 let updating = false;
 async function checkForUpdate({ force = false } = {}) {
   if (updating || !navigator.onLine || !location.protocol.startsWith('http')) return;

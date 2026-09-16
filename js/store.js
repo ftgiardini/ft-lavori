@@ -1122,7 +1122,7 @@ export function importData(text) {
 }
 
 export function clearAll() {
-  state = { ...state, condos: [], jobs: [], payments: [] };
+  state = { ...state, condos: [], jobs: [], payments: [], events: [] };
   if (!isCloud) state = normalize(state);
   commit();
 }
