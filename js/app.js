@@ -403,3 +403,46 @@ if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
     .then((reg) => reg.update())
     .catch((err) => console.warn('Service worker non registrato', err));
 }
+
+// Sul telefono l'app installata resta aperta in sottofondo per giorni e non ricarica i file:
+// ogni volta che torna in primo piano controlla se è uscita una versione nuova e si aggiorna.
+const APP_VERSION = 'v21';
+let updating = false;
+async function checkForUpdate({ force = false } = {}) {
+  if (updating || !navigator.onLine || !location.protocol.startsWith('http')) return;
+  try {
+    const res = await fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' });
+    if (!res.ok) return;
+    const { version } = await res.json();
+    if (!version || version === APP_VERSION) return;
+    // già ricaricato per questa versione ma i file nuovi non sono ancora arrivati: si aspetta un po' (niente ricariche a ripetizione)
+    let tried = null;
+    try { tried = JSON.parse(sessionStorage.getItem('ftg-aggiornamento') || 'null'); } catch { /* niente */ }
+    if (!force && tried?.version === version && Date.now() - tried.at < 15 * 60 * 1000) return;
+    if (!force && (isBusy() || document.querySelector('.sheet-wrap'))) { showUpdateBar(); return; }
+    try { sessionStorage.setItem('ftg-aggiornamento', JSON.stringify({ version, at: Date.now() })); } catch { /* niente */ }
+    await applyUpdate();
+  } catch { /* offline: si riprova la prossima volta */ }
+}
+async function applyUpdate() {
+  updating = true;
+  try {
+    const reg = await navigator.serviceWorker?.getRegistration();
+    await reg?.update();
+    for (const k of await caches.keys()) await caches.delete(k);
+  } catch { /* niente */ }
+  location.reload();
+}
+function showUpdateBar() {
+  if (document.getElementById('update-bar')) return;
+  const bar = document.createElement('div');
+  bar.id = 'update-bar';
+  bar.className = 'update-bar';
+  bar.innerHTML = `<span>È disponibile una versione nuova dell’app</span><button class="btn btn-sm">Aggiorna</button>`;
+  bar.querySelector('button').addEventListener('click', () => checkForUpdate({ force: true }));
+  document.body.appendChild(bar);
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkForUpdate(); });
+window.addEventListener('focus', () => checkForUpdate());
+setInterval(() => checkForUpdate(), 30 * 60 * 1000);
+setTimeout(() => checkForUpdate(), 3000);

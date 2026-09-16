@@ -1,6 +1,6 @@
 // Service worker: l'app funziona anche senza connessione (in cantiere).
 // Quando si modificano i file, aumentare la versione per aggiornare la cache sui telefoni.
-const VERSION = 'ftg-lavori-v20';
+const VERSION = 'ftg-lavori-v21';
 
 const SHELL = [
   './vendor/jspdf.umd.min.js',
@@ -64,6 +64,9 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
 
   // File dell'app: rete prima (così gli aggiornamenti arrivano subito), cache se offline
+  // il file della versione non va mai preso dalla cache
+  if (url.pathname.endsWith('/version.json')) return;
+
   if (url.origin === self.location.origin) {
     event.respondWith(
       // no-cache: chiede sempre al server se il file è cambiato (evita versioni vecchie)
