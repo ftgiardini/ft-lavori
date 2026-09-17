@@ -30,7 +30,6 @@ export function render() {
   const todayJobs = store.jobsOn(t);
   const todayDone = todayJobs.filter(store.isDone).length;
   const overdue = store.overdueJobs();
-  const unscheduled = store.unscheduledJobs();
   const weekFrom = startOfWeek(t);
   const week = store.jobsBetween(weekFrom, addDays(weekFrom, 6));
   const weekDone = week.filter(store.isDone).length;
@@ -106,7 +105,7 @@ export function render() {
   const toCall = store.can('pagamenti') ? store.clientsToCall() : [];
   const dueSoon = store.can('pagamenti') ? store.paymentsList('aperti').filter((p) => store.paymentStatus(p) === 'in-scadenza') : [];
   const checks = store.workChecks();
-  const checkCount = checks.late.length + checks.noReport.length + checks.endedOpen.length + checks.unscheduled.length;
+  const checkCount = checks.late.length + checks.noReport.length + checks.endedOpen.length;
 
   const kpisAmm = `
     <div class="kpis">
@@ -175,7 +174,6 @@ export function render() {
         ${checks.late.length ? `<div class="check-group"><h4>${icon('alert')}In ritardo, non ancora fatti (${checks.late.length})</h4>${checks.late.slice(0, 5).map((j) => jobLink(j)).join('')}</div>` : ''}
         ${checks.noReport.length ? `<div class="check-group"><h4>${icon('note')}Fatti senza dire cosa e in quanto tempo (${checks.noReport.length})</h4>${checks.noReport.slice(0, 5).map((j) => jobLink(j, esc(store.memberById(j.doneBy)?.name || ''))).join('')}</div>` : ''}
         ${checks.endedOpen.length ? `<div class="check-group"><h4>${icon('file')}Contratto finito con lavori mancanti (${checks.endedOpen.length})</h4>${checks.endedOpen.map((c) => `<a class="check-item" href="#/condomini/${c.id}"><i></i><span class="grow ellipsis"><b>${esc(c.name)}</b></span><span class="small muted">mancano ${store.condoStats(c).remaining}</span></a>`).join('')}</div>` : ''}
-        ${checks.unscheduled.length ? `<div class="check-group"><h4>${icon('calendar')}Senza data (${checks.unscheduled.length})</h4>${checks.unscheduled.slice(0, 5).map((j) => jobLink(j)).join('')}</div>` : ''}
       </div>` : '<div class="week-empty">Nessun problema nei lavori: tutto in ordine.</div>'}
     </div>`;
 
@@ -215,13 +213,31 @@ export function render() {
       ${overdue.length > overdueLimit ? `<button class="link-btn" style="margin-top:8px" data-toggle-overdue>${showAllOverdue ? 'Mostra meno' : `Mostra tutti (${overdue.length})`}</button>` : ''}
     </div>` : '';
 
-  const unscheduledSec = unscheduled.length ? `
-    <div class="section">
-      ${sectionHead(`Senza data (${unscheduled.length})`)}
-      <p class="small muted" style="margin:-4px 2px 10px">Non c'erano giorni disponibili nel periodo del contratto: tocca per scegliere una data.</p>
-      <div class="list ${wide ? 'list-2' : ''}">${unscheduled.slice(0, 6).map((j) => jobCard(j)).join('')}</div>
+  // Interventi da programmare: uno per lavoro (il prossimo), da mettere in calendario uno alla volta
+  const toPlan = store.toSchedule();
+  const unscheduledSec = toPlan.length ? `
+    <div class="section" id="da-programmare">
+      ${sectionHead(`Da programmare (${toPlan.length})`)}
+      <p class="small muted" style="margin:-4px 2px 10px">Il prossimo intervento di ogni lavoro: tocca “Programma” e scegli il giorno guardando cosa c’è già.</p>
+      <div class="card card-flush divided">
+        ${toPlan.slice(0, wide ? 12 : 8).map(({ condo, work, job, left, lastDate }) => {
+          const type = store.typeById(work.typeId);
+          const num = store.jobNumber(job);
+          const sug = store.suggestNext(job);
+          return `
+          <div class="plan-row">
+            <span class="type-ic type-ic-sm" style="--c:${type.color}">${icon(type.icon)}</span>
+            <span class="grow" style="min-width:0">
+              <strong class="ellipsis" style="display:block">${esc(type.name)} · ${esc(condo.name)}</strong>
+              <span class="small muted" style="display:block">${num ? `${num.n}° di ${num.of}` : ''}${left > 1 ? ` · ancora ${left} da programmare` : ''}${lastDate ? ` · ultimo in calendario ${esc(fmtShort(lastDate))}` : ' · niente in calendario'}</span>
+              ${sug ? `<span class="small is-green" style="display:block">${icon('sparkles')} proposta: ${esc(fmtShort(sug))}</span>` : ''}
+            </span>
+            <button class="btn btn-primary btn-sm" data-action="schedule-job" data-id="${job.id}">${icon('calendar')}Programma</button>
+          </div>`;
+        }).join('')}
+      </div>
+      ${toPlan.length > (wide ? 12 : 8) ? `<p class="small muted" style="margin:8px 2px">E altri ${toPlan.length - (wide ? 12 : 8)} nelle schede dei condomini.</p>` : ''}
     </div>` : '';
-
   const remainingSec = `
     <div class="section">
       ${sectionHead('Quanti lavori mancano', '<a class="link-btn" href="#/condomini">Tutti</a>')}
@@ -369,10 +385,10 @@ export function render() {
       <div class="home-head">${hello}${actions}</div>
       ${kpis}
       <div class="cols">
-        <div class="cols-main">${summaryCard()}${doneLogSec}${overdueSec}${unscheduledSec}${remainingSec}${deadlinesSec}</div>
+        <div class="cols-main">${summaryCard()}${unscheduledSec}${overdueSec}${doneLogSec}${remainingSec}${deadlinesSec}</div>
         <aside class="cols-side">${eventsSec}${crewSec}${todaySec}${seasonSec}</aside>
       </div>`
-      : `${hello}${kpis}${summaryCard()}${actions}${doneLogSec}${eventsSec}${crewSec}${overdueSec}${unscheduledSec}${remainingSec}${deadlinesSec}${seasonSec}`);
+      : `${hello}${kpis}${summaryCard()}${actions}${unscheduledSec}${overdueSec}${doneLogSec}${eventsSec}${crewSec}${remainingSec}${deadlinesSec}${seasonSec}`);
 
   return {
     title: 'Home',

@@ -6,7 +6,7 @@
 // Le schermate usano sempre le stesse funzioni, qualunque sia la modalità.
 import { DEFAULT_WORK_TYPES, DEFAULT_TEAM, ROLES, WORK_TYPES_VERSION } from './data.js';
 import { uid, todayISO, parseISO, diffDays, addDays, addMonths } from './utils.js';
-import { planWork, normalizePlan } from './scheduler.js';
+import { suggestDates, normalizePlan, hasRule } from './scheduler.js';
 import * as cloud from './cloud.js';
 import { LOGIN_DOMAIN } from './config.js';
 
@@ -853,6 +853,7 @@ export function postpone(id, date, reason = '', note = '') {
 
 export function setJobDate(id, date) {
   const j = jobById(id);
+  date = date || null;
   if (!j || j.date === date) return;
   log(j, { type: 'spostato', from: j.date, to: date });
   j.date = date;
@@ -914,9 +915,11 @@ function newJob(condo, work, date) {
   };
 }
 
-// ---------- Condomini e pianificazione ----------
+// ---------- Condomini e date degli interventi ----------
+// La data del primo intervento è obbligatoria; gli altri restano "da programmare"
+// e Nicolas e Martina li mettono in calendario uno alla volta.
 
-/** Quanti interventi ci sono già in ogni giorno (per non riempire troppo una giornata) */
+/** Quanti interventi ci sono già in ogni giorno (per vedere se una giornata è piena) */
 function loadMap(exceptCondoId = null) {
   const m = {};
   for (const j of state.jobs) {
@@ -926,71 +929,166 @@ function loadMap(exceptCondoId = null) {
   return m;
 }
 
-/** Giorni in cui questo condominio ha già un intervento (per non metterne due lo stesso giorno) */
-function busyDays(condoId, { onlyDone = false } = {}) {
+/** Giorni in cui questo condominio ha già un intervento */
+function busyDays(condoId, exceptJobId = null) {
   const s = new Set();
-  for (const j of state.jobs) {
-    if (j.condoId !== condoId || !j.date) continue;
-    if (onlyDone && !isDone(j)) continue;
-    s.add(j.date);
-  }
+  for (const j of state.jobs) if (j.condoId === condoId && j.date && j.id !== exceptJobId) s.add(j.date);
   return s;
 }
 
-/** Cancella gli interventi non ancora fatti di un lavoro e ripianifica quelli che mancano */
-function scheduleWork(condo, work, load, busyCondo) {
-  state.jobs = state.jobs.filter((j) => !(j.workId === work.id && !isDone(j)));
-  const done = state.jobs.filter((j) => j.workId === work.id && isDone(j)).length + (work.doneBefore || 0);
-  const toPlan = Math.max(0, work.qty - done);
-  const t = todayISO();
-  const from = condo.contractStart > t ? condo.contractStart : t;
-  const { dates } = planWork({
-    plan: work.plan, from, to: condo.contractEnd, months: work.months, count: toPlan,
-    workDays: state.settings.workDays, load, busyCondo,
-  });
-  for (let i = 0; i < toPlan; i++) state.jobs.push(newJob(condo, work, dates[i] || null));
+/** Interventi di un lavoro: fatti (per data) e da fare (prima quelli con la data, poi quelli da programmare) */
+export function doneJobsOf(workId) {
+  return state.jobs.filter((j) => j.workId === workId && isDone(j)).sort(byDate);
+}
+export function pendingJobsOf(workId) {
+  return state.jobs.filter((j) => j.workId === workId && !isDone(j)).sort(byDate);
 }
 
-/** Anteprima senza salvare: le date che verrebbero messe in calendario per ogni lavoro */
-export function previewPlan(data, condoId = null) {
+/** Cosa c'è già in un giorno (interventi da fare e appuntamenti), per decidere se incastrare un lavoro */
+export function dayAgenda(iso, exceptJobId = null) {
+  return {
+    jobs: state.jobs.filter((j) => j.date === iso && j.id !== exceptJobId && !isDone(j)),
+    events: (state.events || []).filter((e) => e.date === iso && !e.done),
+  };
+}
+
+/**
+ * Applica le date scelte nel modulo del condominio.
+ * slots = interventi da fare, in ordine: [{ jobId?, date }] (date vuota = da programmare)
+ */
+function applySlots(condo, work, slots) {
+  const pending = state.jobs.filter((j) => j.workId === work.id && !isDone(j));
+  const keep = new Set();
+  for (const slot of slots) {
+    const date = slot.date || null;
+    const existing = slot.jobId ? pending.find((j) => j.id === slot.jobId) : null;
+    if (existing) {
+      keep.add(existing.id);
+      if (existing.date !== date) {
+        log(existing, { type: 'spostato', from: existing.date, to: date });
+        existing.date = date;
+        fitAssignees(existing);
+      }
+    } else {
+      const j = newJob(condo, work, date);
+      state.jobs.push(j);
+      keep.add(j.id);
+    }
+  }
+  state.jobs = state.jobs.filter((j) => !(j.workId === work.id && !isDone(j) && !keep.has(j.id)));
+}
+
+/** Senza date dal modulo (es. backup vecchi): tiene quelli che ci sono e aggiunge/toglie quelli da programmare */
+function fitCount(condo, work) {
+  const done = state.jobs.filter((j) => j.workId === work.id && isDone(j)).length + (work.doneBefore || 0);
+  const pending = pendingJobsOf(work.id);
+  const target = Math.max(0, work.qty - done);
+  const slots = pending.map((j) => ({ jobId: j.id, date: j.date }));
+  while (slots.length < target) slots.push({ date: null });
+  // se sono troppi si tolgono prima quelli da programmare, poi i più lontani
+  while (slots.length > target) {
+    let i = -1;
+    for (let k = slots.length - 1; k >= 0; k--) if (!slots[k].date) { i = k; break; }
+    slots.splice(i >= 0 ? i : slots.length - 1, 1);
+  }
+  applySlots(condo, work, slots);
+}
+
+/**
+ * Date proposte per gli interventi da programmare di un lavoro, secondo la sua ripetizione.
+ * @returns {string[]} al massimo `count` date, dopo l'ultimo intervento già in calendario
+ */
+export function suggestFor(condo, work, count, { exceptJobId = null, extraBusy = [] } = {}) {
+  if (!condo || !work || count <= 0 || !hasRule(work.plan)) return [];
+  const jobs = state.jobs.filter((j) => j.workId === work.id && j.date && j.id !== exceptJobId);
+  const dates = [...jobs.map((j) => j.date), ...extraBusy].filter(Boolean).sort();
+  const first = dates[0] || null;
+  const last = dates[dates.length - 1] || null;
   const t = todayISO();
-  const from = data.contractStart > t ? data.contractStart : t;
-  const load = loadMap(condoId);
-  const busyCondo = new Set();
-  return data.works.map((w) => {
-    const doneJobs = condoId ? state.jobs.filter((j) => j.workId === w.id && isDone(j)).length : 0;
-    const toPlan = Math.max(0, w.qty - (w.doneBefore || 0) - doneJobs);
-    const res = planWork({
-      plan: w.plan, from, to: data.contractEnd, months: w.months, count: toPlan,
-      workDays: state.settings.workDays, load, busyCondo,
-    });
-    return { work: w, toPlan, ...res };
+  let from = condo.contractStart > t ? condo.contractStart : t;
+  if (last && addDays(last, 1) > from) from = addDays(last, 1);
+  const busyCondo = busyDays(condo.id, exceptJobId);
+  for (const d of extraBusy) if (d) busyCondo.add(d);
+  return suggestDates({
+    plan: work.plan, from, to: condo.contractEnd, months: work.months, count, anchor: first,
+    workDays: state.settings.workDays, load: loadMap(), busyCondo,
   });
+}
+
+/** Data proposta per un intervento da programmare (o null se il lavoro non ha una ripetizione) */
+export function suggestNext(job) {
+  const condo = condoById(job?.condoId);
+  const work = workOf(job);
+  return suggestFor(condo, work, 1, { exceptJobId: job.id })[0] || null;
+}
+
+/** Per ogni lavoro dei contratti: il prossimo intervento da programmare (uno per lavoro) */
+export function toSchedule() {
+  const out = [];
+  for (const c of state.condos) {
+    for (const w of c.works) {
+      const pending = pendingJobsOf(w.id);
+      const open = pending.filter((j) => !j.date);
+      if (!open.length) continue;
+      const next = open[0];
+      const planned = pending.filter((j) => j.date);
+      out.push({ condo: c, work: w, job: next, left: open.length, planned: planned.length, lastDate: planned[planned.length - 1]?.date || null });
+    }
+  }
+  // prima i lavori che non hanno più niente in calendario
+  return out.sort((a, b) => (a.planned ? 1 : 0) - (b.planned ? 1 : 0) || a.condo.name.localeCompare(b.condo.name));
+}
+
+/** Mette in calendario gli interventi da programmare di un condominio con le date proposte */
+export function fillSuggested(condoId) {
+  const c = condoById(condoId);
+  if (!c) return 0;
+  let n = 0;
+  for (const w of c.works) {
+    const open = pendingJobsOf(w.id).filter((j) => !j.date);
+    const dates = suggestFor(c, w, open.length);
+    dates.forEach((d, i) => {
+      const j = open[i];
+      log(j, { type: 'spostato', from: null, to: d });
+      j.date = d;
+      fitAssignees(j);
+      n++;
+    });
+  }
+  if (n) commit();
+  return n;
 }
 
 const CONDO_FIELDS = ['name', 'address', 'city', 'adminName', 'phone', 'email', 'notes', 'contractStart', 'contractEnd', 'team'];
 
-function cleanWorks(works) {
-  return works
-    .filter((w) => w.qty > 0)
-    .map((w) => ({
-      id: w.id || uid('w_'), typeId: w.typeId, qty: Number(w.qty),
-      months: [...w.months].sort((a, b) => a - b), doneBefore: Number(w.doneBefore) || 0,
-      notes: w.notes || '', plan: normalizePlan(w.plan),
-    }));
+function cleanWork(w) {
+  return {
+    id: w.id || uid('w_'), typeId: w.typeId, qty: Number(w.qty),
+    months: [...(w.months || [])].sort((a, b) => a - b), doneBefore: Number(w.doneBefore) || 0,
+    notes: w.notes || '', plan: normalizePlan(w.plan),
+  };
 }
 
-/** Due lavori dello stesso lavoro/condominio cambiano giorno? Allora va ripianificato */
-const samePlan = (a, b) => JSON.stringify(normalizePlan(a)) === JSON.stringify(normalizePlan(b));
+/** Salva i lavori del contratto e le loro date (w.slots dal modulo) */
+function saveWorks(condo, works) {
+  const active = works.filter((w) => w.qty > 0);
+  condo.works = active.map(cleanWork);
+  condo.works.forEach((w, i) => {
+    const slots = active[i].slots;
+    if (Array.isArray(slots)) {
+      const sorted = [...slots].sort((a, b) => (a.date || '9999').localeCompare(b.date || '9999'));
+      applySlots(condo, w, sorted);
+    } else {
+      fitCount(condo, w);
+    }
+  });
+}
 
 export function createCondo(data) {
   const condo = { id: uid('c_'), createdAt: Date.now() };
   for (const f of CONDO_FIELDS) condo[f] = data[f];
-  condo.works = cleanWorks(data.works);
   state.condos.push(condo);
-  const load = loadMap();
-  const busyCondo = new Set();
-  for (const w of condo.works) scheduleWork(condo, w, load, busyCondo);
+  saveWorks(condo, data.works);
   commit();
   return condo;
 }
@@ -1000,38 +1098,16 @@ export function updateCondo(id, data) {
   if (!c) return;
   const old = clone(c);
   for (const f of CONDO_FIELDS) c[f] = data[f];
-  c.works = cleanWorks(data.works);
+  saveWorks(c, data.works);
 
   const removed = old.works.filter((ow) => !c.works.some((w) => w.id === ow.id));
   state.jobs = state.jobs.filter((j) => !(j.condoId === id && !isDone(j) && removed.some((r) => r.id === j.workId)));
-
-  const periodChanged = old.contractStart !== c.contractStart || old.contractEnd !== c.contractEnd;
-  const load = loadMap(id);
-  const busyCondo = busyDays(id);
-  for (const w of c.works) {
-    const ow = old.works.find((o) => o.id === w.id);
-    const changed = !ow || periodChanged || ow.qty !== w.qty || ow.doneBefore !== w.doneBefore
-      || ow.months.join() !== w.months.join() || !samePlan(ow.plan, w.plan);
-    if (changed) {
-      for (const j of state.jobs) if (j.workId === w.id && !isDone(j) && j.date) busyCondo.delete(j.date);
-      scheduleWork(c, w, load, busyCondo);
-    }
-  }
 
   if (old.team.join() !== c.team.join()) {
     for (const j of state.jobs) {
       if (j.condoId === id && !isDone(j) && j.assignees.join() === defaultAssignees(old, j.date).join()) j.assignees = defaultAssignees(c, j.date);
     }
   }
-  commit();
-}
-
-export function replanCondo(id) {
-  const c = condoById(id);
-  if (!c) return;
-  const load = loadMap(id);
-  const busyCondo = busyDays(id, { onlyDone: true });
-  for (const w of c.works) scheduleWork(c, w, load, busyCondo);
   commit();
 }
 

@@ -50,14 +50,12 @@ export const EVENT_KINDS = [
 ];
 export const eventKind = (id) => EVENT_KINDS.find((k) => k.id === id) || EVENT_KINDS[0];
 
-// Come si decidono i giorni di un lavoro del contratto (vedi scheduler.js)
+// Ripetizione di un lavoro del contratto: serve a proporre le date (vedi scheduler.js)
 export const PLAN_MODES = [
-  { id: 'mensile', label: 'Giorni del mese', hint: 'Es. il 5 e il 20 di ogni mese scelto' },
-  { id: 'settimanale', label: 'Giorni della settimana', hint: 'Es. ogni martedì, o un martedì sì e uno no' },
-  { id: 'date', label: 'Date precise', hint: 'Scegli una per una le date sul calendario' },
-  { id: 'auto', label: 'Sceglie l’app', hint: 'Distribuisce da sola gli interventi nei mesi scelti' },
+  { id: 'mensile', label: 'Giorni del mese', hint: 'Es. il 5 e il 20 di ogni mese' },
+  { id: 'settimanale', label: 'Giorni della settimana', hint: 'Es. ogni martedì, o ogni 2 settimane' },
 ];
-export const DEFAULT_PLAN = { mode: 'mensile', days: [], weekdays: [], every: 1, dates: [], avoidClash: true };
+export const DEFAULT_PLAN = { mode: '', days: [], weekdays: [], every: 1 };
 
 // Durate rapide quando si registra un lavoro fatto (minuti)
 export const DURATIONS = [30, 60, 90, 120, 180, 240, 360, 480];

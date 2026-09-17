@@ -1,15 +1,17 @@
 // Nuovo condominio / modifica: procedura guidata in 3 passi.
-// 1 Contratto (PDF, testo o a mano) → 2 Dati, squadra, lavori, quantità e giorni → 3 Anteprima calendario.
+// 1 Contratto (PDF, testo o a mano) → 2 Dati, squadra, lavori e date → 3 Riepilogo.
+// Per ogni lavoro la data del 1° intervento è obbligatoria; gli altri si possono lasciare
+// "da programmare" e mettere in calendario più avanti, uno alla volta.
 import * as store from '../store.js';
 import { icon } from '../icons.js';
 import { rerender, toast, openSheet } from '../ui.js';
 import { typeIcon, avatar, daysLabel } from '../components.js';
 import { pdfToText, parseContract } from '../contract-parser.js';
-import { periodMonths, normalizePlan, planLabel } from '../scheduler.js';
+import { normalizePlan, planLabel, hasRule, suggestDates, DAY_LIMIT } from '../scheduler.js';
 import { WORK_COLORS, PLAN_MODES, DEFAULT_PLAN } from '../data.js';
-import { esc, todayISO, addDays, parseISO, toISO, monthsLabel, fmtLong, fmtShort, MONTH_INITIALS, MONTHS_SHORT, WEEKDAYS_SHORT, plural } from '../utils.js';
+import { esc, todayISO, parseISO, toISO, fmtLong, fmtShort, fmtDateNum, MONTH_INITIALS, MONTHS_SHORT, WEEKDAYS_SHORT, plural } from '../utils.js';
 
-const STEPS = ['Contratto', 'Dati e lavori', 'Calendario'];
+const STEPS = ['Contratto', 'Dati e lavori', 'Riepilogo'];
 const LAST = STEPS.length - 1;
 let draft = null;
 
@@ -31,11 +33,27 @@ function initDraft(id) {
   draft = { key: id || 'nuovo', id, step: id ? 1 : 0, mode: null, parsing: false, parseError: '', parsed: false, text: '', data, works, open: null };
 }
 
-/** Riga del modulo per un tipo di lavoro (con i dati del contratto, se c'è già) */
+/** Riga del modulo per un tipo di lavoro (con i dati del contratto e le date degli interventi, se ci sono già) */
 function newWork(type, w) {
-  return w
-    ? { id: w.id, typeId: type.id, qty: w.qty, months: [...w.months], doneBefore: w.doneBefore || 0, notes: w.notes || '', plan: normalizePlan(w.plan) }
-    : { typeId: type.id, qty: 0, months: [...type.months], doneBefore: 0, notes: '', plan: { ...DEFAULT_PLAN, days: [], weekdays: [] } };
+  if (!w) return { typeId: type.id, qty: 0, months: [...type.months], doneBefore: 0, notes: '', plan: { ...DEFAULT_PLAN }, slots: [], doneDates: [] };
+  return {
+    id: w.id, typeId: type.id, qty: w.qty, months: [...w.months], doneBefore: w.doneBefore || 0, notes: w.notes || '',
+    plan: normalizePlan(w.plan),
+    slots: store.pendingJobsOf(w.id).map((j) => ({ jobId: j.id, date: j.date || '' })),
+    doneDates: store.doneJobsOf(w.id).map((j) => j.date),
+  };
+}
+
+/** Tiene il numero di righe-data uguale agli interventi ancora da fare */
+function syncSlots(w) {
+  const target = Math.max(0, w.qty - w.doneDates.length - (w.doneBefore || 0));
+  while (w.slots.length < target) w.slots.push({ date: '' });
+  while (w.slots.length > target) {
+    // prima si tolgono le righe vuote, partendo dal fondo
+    let i = -1;
+    for (let k = w.slots.length - 1; k >= 0; k--) if (!w.slots[k].date) { i = k; break; }
+    w.slots.splice(i >= 0 ? i : w.slots.length - 1, 1);
+  }
 }
 
 export function renderForm(id) {
@@ -70,12 +88,12 @@ export function renderForm(id) {
       <div class="steps" style="grid-template-columns:repeat(${stepCount},1fr)">
         ${Array.from({ length: stepCount }, (_, i) => `<span class="${i < stepNum ? 'on' : ''}"></span>`).join('')}
       </div>
-      ${d.parsed && d.step > 0 && d.step < LAST ?`<div class="plan-warn" style="margin:0 0 14px;background:var(--green-100);color:var(--green-700)">${icon('sparkles')}<span>Dati letti dal contratto: <b>controlla</b> che siano corretti e completa quelli mancanti.</span></div>` : ''}
+      ${d.parsed && d.step > 0 && d.step < LAST ? `<div class="plan-warn ok" style="margin:0 0 14px">${icon('sparkles')}<span>Dati letti dal contratto: <b>controlla</b> che siano corretti e completa quelli mancanti.</span></div>` : ''}
       ${body}
       ${d.step > 0 ? `
       <div class="wiz-foot">
         ${d.step > firstStep ? `<button class="btn btn-ghost" data-go="-1">${icon('left')}Indietro</button>` : ''}
-        ${d.step < LAST ? `<button class="btn btn-primary" data-go="1">Avanti${icon('right')}</button>` : `<button class="btn btn-primary" data-save>${icon('check')}${editing ? 'Salva modifiche' : 'Crea e pianifica'}</button>`}
+        ${d.step < LAST ? `<button class="btn btn-primary" data-go="1">Avanti${icon('right')}</button>` : `<button class="btn btn-primary" data-save>${icon('check')}${editing ? 'Salva modifiche' : 'Salva il condominio'}</button>`}
       </div>` : ''}
     </div>`;
 
@@ -92,7 +110,7 @@ function stepContract() {
       <label class="option featured">
         <input type="file" accept="application/pdf,.pdf" hidden data-pdf>
         <span class="option-ic">${icon('upload')}</span>
-        <span class="grow"><strong>Carica il contratto PDF <span class="tag">AUTO</span></strong><small>L'app legge il contratto e propone lavori, quantità e mesi</small></span>
+        <span class="grow"><strong>Carica il contratto PDF <span class="tag">AUTO</span></strong><small>L'app legge il contratto e propone lavori e quantità</small></span>
         ${icon('right')}
       </label>
       <button class="option ${d.mode === 'text' ? 'featured' : ''}" data-mode="text">
@@ -102,7 +120,7 @@ function stepContract() {
       </button>
       <button class="option" data-mode="manual">
         <span class="option-ic">${icon('edit')}</span>
-        <span class="grow"><strong>Compila a mano</strong><small>Scegli tu lavori, quantità e mesi</small></span>
+        <span class="grow"><strong>Compila a mano</strong><small>Scegli tu lavori, quantità e date</small></span>
         ${icon('right')}
       </button>
     </div>
@@ -131,11 +149,13 @@ function applyParsed(result) {
     const w = d.works.find((x) => x.typeId === f.typeId);
     if (!w) continue;
     Object.assign(w, { qty: f.qty, months: f.months, found: true, qtyFound: f.qtyFound, monthsFound: f.monthsFound, snippet: f.snippet });
+    syncSlots(w);
   }
+  d.open = d.works.findIndex((w) => w.qty > 0);
   d.parsed = true;
   d.parseError = '';
   d.step = 1;
-  toast(`Trovati ${plural(found.length, 'lavoro', 'lavori')} nel contratto`);
+  toast(`Trovati ${plural(found.length, 'lavoro', 'lavori')} nel contratto: ora inserisci la data del primo intervento`);
 }
 
 // ---------- Passo 2: dati ----------
@@ -161,8 +181,8 @@ function stepData() {
     <div class="card">
       <span class="label">Periodo del contratto</span>
       <div class="field-row" style="margin-top:8px">
-        ${input('contractStart', 'Dal', 'type="date"')}
-        ${input('contractEnd', 'Al', 'type="date"')}
+        ${input('contractStart', 'Dal', 'type="date" data-period')}
+        ${input('contractEnd', 'Al', 'type="date" data-period')}
       </div>
     </div>
     <div class="card">
@@ -178,91 +198,116 @@ function stepData() {
     </div>`;
 }
 
-// ---------- Passo 3: lavori ----------
+// ---------- Passo 2: lavori e date ----------
 
-function monthsPicker(w, i) {
-  const type = store.typeById(w.typeId);
-  return `
-    <span class="label">In quali mesi</span>
-    <div class="months" style="--c:${type.color};margin-top:8px">
-      ${MONTH_INITIALS.map((l, m) => `<button class="${w.months.includes(m + 1) ? 'on' : ''}" data-month="${m + 1}" data-work="${i}" aria-label="${MONTHS_SHORT[m]}">${l}<small>${MONTHS_SHORT[m]}</small></button>`).join('')}
-    </div>`;
+/** Tutte le date già scelte nel modulo (tutti i lavori), con il lavoro a cui appartengono */
+function draftDates() {
+  const out = [];
+  draft.works.forEach((w, wi) => {
+    if (w.qty <= 0) return;
+    w.slots.forEach((s, si) => { if (s.date) out.push({ date: s.date, wi, si }); });
+    w.doneDates.forEach((dt) => out.push({ date: dt, wi, si: -1 }));
+  });
+  return out;
 }
 
-/** Scelta dei giorni: del mese, della settimana, date precise oppure automatico */
-function planEditor(w, i, found) {
+/** Avvisi su una data: stesso giorno di un altro lavoro di questo condominio, giornata piena */
+function dateWarnings(date, wi, si) {
+  if (!date) return '';
+  const d = draft;
+  const notes = [];
+  if (date < d.data.contractStart || date > d.data.contractEnd) notes.push('<span class="is-red-text">fuori dal periodo del contratto</span>');
+  const same = draftDates().filter((x) => x.date === date && !(x.wi === wi && x.si === si));
+  if (same.length) {
+    const names = [...new Set(same.map((x) => store.typeById(d.works[x.wi].typeId).name))];
+    notes.push(`stesso giorno di ${esc(names.join(', '))}`);
+  }
+  const others = store.dayAgenda(date).jobs.filter((j) => j.condoId !== d.id);
+  const events = store.dayAgenda(date).events;
+  if (others.length >= DAY_LIMIT) notes.push(`<b>giornata piena</b>: già ${others.length} lavori`);
+  else if (others.length) notes.push(`quel giorno ${plural(others.length, 'altro lavoro', 'altri lavori')}`);
+  if (events.length) notes.push(plural(events.length, 'appuntamento', 'appuntamenti'));
+  if (d.data.contractStart && parseISO(date).getDay() === 0) notes.push('è domenica');
+  return notes.length ? `<span class="slot-warn">${icon('alert')}${notes.join(' · ')}</span>` : '';
+}
+
+function datesEditor(w, wi) {
+  const t = todayISO();
+  const doneN = w.doneDates.length + (w.doneBefore || 0);
+  const firstRequired = w.doneDates.length === 0;
+  const empty = w.slots.filter((s) => !s.date).length;
+  const hasFirst = w.slots.some((s) => s.date);
+  const canSuggest = hasRule(w.plan) && empty > 0 && (hasFirst || !firstRequired);
+  let n = doneN;
+  return `
+    <span class="label">Date degli interventi</span>
+    <p class="hint" style="margin:2px 0 10px">${firstRequired ? '<b>La data del 1° intervento è obbligatoria.</b> ' : ''}Le altre puoi lasciarle vuote: restano “da programmare” e le mettete in calendario più avanti, una alla volta.</p>
+    <div class="slots">
+      ${w.doneBefore ? `<div class="slot done"><span class="slot-n">1–${w.doneBefore}</span><span class="grow small">fatti prima di usare l’app</span></div>` : ''}
+      ${w.doneDates.map((dt, k) => `<div class="slot done"><span class="slot-n">${(w.doneBefore || 0) + k + 1}°</span><span class="grow small">${icon('check')} fatto ${dt ? `il ${esc(fmtDateNum(dt))}` : ''}</span></div>`).join('')}
+      ${w.slots.map((s, si) => {
+        n++;
+        const required = firstRequired && si === 0;
+        return `
+        <div class="slot ${s.date ? 'set' : ''} ${required && !s.date ? 'required' : ''}">
+          <label class="slot-n" for="slot-${wi}-${si}">${n}°${required ? ' *' : ''}</label>
+          <div class="grow" style="min-width:0">
+            <input id="slot-${wi}-${si}" class="input slot-input" type="date" value="${esc(s.date)}" min="${esc(draft.data.contractStart || t)}" max="${esc(draft.data.contractEnd || '')}" data-slot="${wi}:${si}">
+            ${s.date ? dateWarnings(s.date, wi, si) : `<span class="slot-hint">${required ? 'obbligatoria' : 'da programmare più avanti'}</span>`}
+          </div>
+          ${s.date ? `<button class="icon-btn" data-clear-slot="${wi}:${si}" aria-label="Togli la data">${icon('x')}</button>` : ''}
+        </div>`;
+      }).join('')}
+    </div>
+    ${canSuggest ? `<button class="btn btn-soft btn-block btn-sm" style="margin-top:10px" data-suggest="${wi}">${icon('sparkles')}Proponi le altre ${empty} date con la ripetizione</button>` : ''}`;
+}
+
+function ruleEditor(w, wi) {
   const p = w.plan;
   const type = store.typeById(w.typeId);
-  const dayGrid = `
-    <span class="label">Che giorno del mese</span>
-    <p class="hint" style="margin:2px 0 8px">Tocca i giorni: si ripetono in tutti i mesi scelti qui sotto. Se cade di domenica o è già occupato, l'intervento slitta al primo giorno utile.</p>
-    <div class="daygrid" style="--c:${type.color}">
-      ${Array.from({ length: 31 }, (_, k) => `<button class="${p.days.includes(k + 1) ? 'on' : ''}" data-day-month="${k + 1}" data-work="${i}">${k + 1}</button>`).join('')}
-    </div>`;
-
-  const weekPick = `
-    <span class="label">Che giorno della settimana</span>
-    <div class="pick" style="margin-top:8px">
-      ${[1, 2, 3, 4, 5, 6, 0].map((wd) => `<button class="${p.weekdays.includes(wd) ? 'on' : ''}" data-weekday="${wd}" data-work="${i}">${WEEKDAYS_SHORT[wd]}</button>`).join('')}
-    </div>
-    <span class="label" style="margin-top:12px;display:block">Ogni quanto</span>
-    <div class="seg" style="margin-top:6px">
-      ${[[1, 'Ogni settimana'], [2, 'Ogni 2 settimane'], [3, 'Ogni 3'], [4, 'Ogni 4']].map(([n, l]) => `<button class="${p.every === n ? 'on' : ''}" data-every="${n}" data-work="${i}">${l}</button>`).join('')}
-    </div>`;
-
-  const datePick = `
-    <span class="label">Le date, una per una</span>
-    <div class="row" style="margin-top:8px;gap:8px">
-      <input class="input" type="date" data-new-date="${i}" min="${esc(draft.data.contractStart)}" max="${esc(draft.data.contractEnd)}" aria-label="Aggiungi una data">
-      <button class="btn btn-soft" data-add-date="${i}">${icon('plus')}Aggiungi</button>
-    </div>
-    ${p.dates.length ? `<div class="date-chips">${p.dates.map((dt) => `<span class="date-chip">${esc(fmtShort(dt))}<button data-del-date="${esc(dt)}" data-work="${i}" aria-label="Togli ${esc(fmtShort(dt))}">${icon('x')}</button></span>`).join('')}</div>` : '<p class="hint" style="margin-top:8px">Nessuna data scelta.</p>'}`;
-
   return `
-    <span class="label">Quando si fa</span>
-    <div class="plan-modes" style="margin:8px 0 12px">
-      ${PLAN_MODES.map((m) => `<button class="${p.mode === m.id ? 'on' : ''}" data-plan-mode="${m.id}" data-work="${i}"><b>${m.label}</b><small>${m.hint}</small></button>`).join('')}
+    <span class="label">Ripetizione <span class="muted">(facoltativa)</span></span>
+    <p class="hint" style="margin:2px 0 8px">Serve all’app per proporre le date degli interventi successivi.</p>
+    <div class="plan-modes">
+      ${PLAN_MODES.map((m) => `<button class="${p.mode === m.id ? 'on' : ''}" data-plan-mode="${m.id}" data-work="${wi}"><b>${m.label}</b><small>${m.hint}</small></button>`).join('')}
     </div>
-    ${p.mode === 'mensile' ? dayGrid : ''}
-    ${p.mode === 'settimanale' ? weekPick : ''}
-    ${p.mode === 'date' ? datePick : ''}
-    ${p.mode === 'date' ? '' : `<div style="margin-top:14px">${monthsPicker(w, i)}</div>`}
-    ${found?.dates ? `
-      <div class="plan-result ${found.dates.length < found.toPlan ? 'warn' : ''}">
-        ${icon(found.dates.length < found.toPlan ? 'alert' : 'check')}
-        <span>${found.dates.length === found.toPlan
-          ? `<b>${plural(found.toPlan, 'intervento', 'interventi')}</b> in calendario: ${found.dates.slice(0, 4).map((x) => esc(fmtShort(x))).join(' · ')}${found.dates.length > 4 ? ` · +${found.dates.length - 4}` : ''}`
-          : `Con questi giorni l'app trova <b>${found.dates.length}</b> date su ${found.toPlan}: ${found.dates.length ? 'le altre resteranno “senza data”.' : 'scegli i giorni o allarga i mesi.'}`}</span>
+    ${p.mode === 'mensile' ? `
+      <span class="label" style="margin-top:12px;display:block">Che giorni del mese</span>
+      <div class="daygrid" style="--c:${type.color};margin-top:8px">
+        ${Array.from({ length: 31 }, (_, k) => `<button class="${p.days.includes(k + 1) ? 'on' : ''}" data-day-month="${k + 1}" data-work="${wi}">${k + 1}</button>`).join('')}
       </div>` : ''}
-    ${p.mode === 'auto' ? '' : `
-      <label class="check-row" style="margin-top:12px">
-        <input type="checkbox" data-avoid="${i}" ${p.avoidClash ? 'checked' : ''}>
-        <span><b class="strong">Non sovrapporre i lavori</b><small>Se il giorno è già pieno o c'è già un lavoro in questo condominio, sposta al giorno vicino</small></span>
-      </label>`}`;
+    ${p.mode === 'settimanale' ? `
+      <span class="label" style="margin-top:12px;display:block">Che giorni della settimana</span>
+      <div class="pick" style="margin-top:8px">
+        ${[1, 2, 3, 4, 5, 6, 0].map((wd) => `<button class="${p.weekdays.includes(wd) ? 'on' : ''}" data-weekday="${wd}" data-work="${wi}">${WEEKDAYS_SHORT[wd]}</button>`).join('')}
+      </div>
+      <div class="seg" style="margin-top:10px">
+        ${[[1, 'Ogni settimana'], [2, 'Ogni 2'], [3, 'Ogni 3'], [4, 'Ogni 4']].map(([k, l]) => `<button class="${p.every === k ? 'on' : ''}" data-every="${k}" data-work="${wi}">${l}</button>`).join('')}
+      </div>` : ''}
+    ${p.mode ? `
+      <span class="label" style="margin-top:14px;display:block">In quali mesi</span>
+      <div class="months" style="--c:${type.color};margin-top:8px">
+        ${MONTH_INITIALS.map((l, m) => `<button class="${w.months.includes(m + 1) ? 'on' : ''}" data-month="${m + 1}" data-work="${wi}" aria-label="${MONTHS_SHORT[m]}">${l}<small>${MONTHS_SHORT[m]}</small></button>`).join('')}
+      </div>` : ''}`;
 }
 
 function stepWorks() {
   const d = draft;
   const pastStart = d.data.contractStart < todayISO();
-  const activeWorks = d.works.filter((w) => w.qty > 0);
-  const active = activeWorks.length;
-  // date che verrebbero messe in calendario, così si vede subito l'effetto dei giorni scelti
-  let preview = [];
-  try {
-    preview = store.previewPlan({ ...d.data, works: activeWorks }, d.id);
-  } catch { /* periodo non ancora valido */ }
-  const foundOf = (w) => preview.find((r) => r.work === w);
+  const active = d.works.filter((w) => w.qty > 0).length;
 
   return `
     <div class="works-head" id="lavori">
-      <h2>Lavori da fare, quantità e giorni</h2>
-      <p class="small muted">Per ogni lavoro del contratto tocca <b class="strong">+</b> fino al numero di volte (es. 10 sfalci l'anno), poi scegli tu <b class="strong">in che giorni</b> si fa. ${active ? `<b class="strong">${plural(active, 'lavoro inserito', 'lavori inseriti')}</b>` : ''}</p>
+      <h2>Lavori da fare e date</h2>
+      <p class="small muted">Per ogni lavoro del contratto tocca <b class="strong">+</b> fino al numero di volte (es. 10 sfalci), poi inserisci <b class="strong">la data del 1° intervento</b>. ${active ? `<b class="strong">${plural(active, 'lavoro inserito', 'lavori inseriti')}</b>` : ''}</p>
     </div>
     ${!d.works.length ? `<div class="plan-warn">${icon('alert')}<span>Elenco dei lavori non ancora disponibile: controlla la connessione.</span></div>` : ''}
     ${d.works.map((w, i) => {
       const type = store.typeById(w.typeId);
       const on = w.qty > 0;
       const open = on && d.open === i;
+      const set = w.slots.filter((s) => s.date).length;
+      const missingFirst = on && !w.doneDates.length && w.slots.length && !set;
       const badge = w.found ? (w.qtyFound ? `<span class="found">${icon('sparkles')}Dal contratto</span>` : `<span class="found warn">${icon('alert')}Controlla quantità</span>`) : '';
       return `
       <div class="work-edit ${on ? 'on' : ''}" style="--c:${type.color}">
@@ -270,7 +315,9 @@ function stepWorks() {
           ${typeIcon(type, 'sm')}
           <div class="grow">
             <strong>${esc(type.name)}</strong> ${badge}
-            <div class="small muted">${on ? `${plural(w.qty, 'volta', 'volte')} · ${esc(planLabel(w.plan))}` : 'Non previsto · tocca +'}</div>
+            <div class="small muted">${on
+              ? `${plural(w.qty, 'volta', 'volte')} · ${set} in calendario${w.slots.length - set ? ` · ${w.slots.length - set} da programmare` : ''}`
+              : 'Non previsto · tocca +'}</div>
           </div>
           <div class="stepper">
             <button data-qty="${i}" data-delta="-1" aria-label="Meno">${icon('minus')}</button>
@@ -279,10 +326,12 @@ function stepWorks() {
           </div>
         </div>
         ${on ? `
-        <button class="work-toggle" data-open="${i}">${icon(open ? 'up' : 'down')}${open ? 'Chiudi i giorni' : 'Scegli i giorni'}<span class="grow"></span><span class="small muted">${esc(monthsLabel(w.months))}</span></button>` : ''}
+        <button class="work-toggle ${missingFirst ? 'is-missing' : ''}" data-open="${i}">${icon(open ? 'up' : 'down')}${open ? 'Chiudi' : missingFirst ? 'Inserisci la data del 1° intervento' : 'Date e ripetizione'}<span class="grow"></span><span class="small muted">${esc(planLabel(w.plan))}</span></button>` : ''}
         ${open ? `
         <div class="work-edit-more">
-          ${planEditor(w, i, foundOf(w))}
+          ${datesEditor(w, i)}
+          <div class="divider"></div>
+          ${ruleEditor(w, i)}
           ${pastStart ? `
           <div class="row-between" style="margin-top:14px">
             <span class="small"><b class="strong">Già fatti</b> prima di usare l'app</span>
@@ -299,95 +348,101 @@ function stepWorks() {
     <button class="btn btn-ghost btn-block" style="margin-top:12px" data-new-type>${icon('plus')}Aggiungi un altro tipo di lavoro</button>`;
 }
 
-// ---------- Passo 4: anteprima ----------
+// ---------- Passo 3: riepilogo ----------
 
 function stepPreview() {
   const d = draft;
-  const t = todayISO();
   const works = d.works.filter((w) => w.qty > 0);
-  const from = d.data.contractStart > t ? d.data.contractStart : t;
-  const state = store.getState();
-
-  const rows = store.previewPlan({ ...d.data, works }, d.id).map((r) => ({ ...r, w: r.work, type: store.typeById(r.work.typeId) }));
-  const months = periodMonths(d.data.contractStart, d.data.contractEnd);
-  const total = rows.reduce((a, r) => a + r.toPlan, 0);
-  const missing = rows.filter((r) => r.dates.length < r.toPlan);
-  const moved = rows.flatMap((r) => r.moved.map((m) => ({ ...m, type: r.type })));
-  const days = state.settings.workDays.map((x) => WEEKDAYS_SHORT[x]).join(', ');
+  const planned = works.reduce((a, w) => a + w.slots.filter((s) => s.date).length, 0);
+  const open = works.reduce((a, w) => a + w.slots.filter((s) => !s.date).length, 0);
 
   return `
     <div class="card">
       <div class="row">
         <span class="option-ic">${icon('calendar')}</span>
         <div class="grow">
-          <strong class="strong" style="font-size:17px">${plural(total, 'intervento', 'interventi')} da mettere in calendario</strong>
-          <p class="small muted">Dal ${fmtLong(from)} al ${fmtLong(d.data.contractEnd, true)} · giorni lavorativi: ${days}</p>
+          <strong class="strong" style="font-size:17px">${plural(planned, 'intervento', 'interventi')} in calendario${open ? ` · ${open} da programmare` : ''}</strong>
+          <p class="small muted">Contratto dal ${fmtLong(d.data.contractStart, true)} al ${fmtLong(d.data.contractEnd, true)}</p>
         </div>
       </div>
     </div>
-
     <div class="section">
-      <div class="section-head"><h2>Giorni scelti</h2></div>
-      ${rows.map((r) => `
-        <div class="card plan-days" style="--c:${r.type.color}">
+      ${works.map((w) => {
+        const type = store.typeById(w.typeId);
+        const dated = w.slots.filter((s) => s.date).map((s) => s.date).sort();
+        const left = w.slots.length - dated.length;
+        return `
+        <div class="card plan-days" style="--c:${type.color}">
           <div class="row">
-            ${typeIcon(r.type, 'sm')}
+            ${typeIcon(type, 'sm')}
             <div class="grow">
-              <strong>${esc(r.type.name)}</strong>
-              <div class="small muted">${esc(planLabel(r.w.plan))} · ${plural(r.dates.length, 'data', 'date')}</div>
+              <strong>${esc(type.name)}</strong>
+              <div class="small muted">${plural(w.qty, 'volta', 'volte')} · ${esc(planLabel(w.plan))}</div>
             </div>
           </div>
-          ${r.dates.length ? `<div class="date-chips">${r.dates.map((x) => `<span class="date-chip plain">${esc(fmtShort(x))}<small>${parseISO(x).getFullYear()}</small></span>`).join('')}</div>` : '<p class="small muted" style="margin-top:8px">Nessuna data: resteranno da programmare.</p>'}
-        </div>`).join('')}
-      ${!rows.length ? '<div class="card"><p class="small muted">Nessun lavoro inserito.</p></div>' : ''}
+          <div class="date-chips">
+            ${w.doneDates.length || w.doneBefore ? `<span class="date-chip">${icon('check')} ${w.doneDates.length + (w.doneBefore || 0)} già fatti</span>` : ''}
+            ${dated.map((x) => `<span class="date-chip plain">${esc(fmtShort(x))}<small>${parseISO(x).getFullYear()}</small></span>`).join('')}
+            ${left ? `<span class="date-chip todo">${icon('clock')} ${left} da programmare</span>` : ''}
+          </div>
+        </div>`;
+      }).join('')}
     </div>
-
-    <div class="card">
-      <span class="label">Distribuzione nei mesi</span>
-      <div class="plan-scroll" style="margin-top:10px">
-        <table class="plan-table">
-          <thead><tr><th>Lavoro</th>${months.map((m) => `<th>${MONTHS_SHORT[m.m - 1]}</th>`).join('')}<th>Tot</th></tr></thead>
-          <tbody>
-            ${rows.map((r) => `
-              <tr style="--c:${r.type.color}">
-                <td>${esc(r.type.name)}</td>
-                ${months.map((m) => {
-                  const key = `${m.y}-${String(m.m).padStart(2, '0')}`;
-                  const n = r.dates.filter((x) => x.startsWith(key)).length;
-                  return `<td class="${n ? 'has' : ''}">${n || ''}</td>`;
-                }).join('')}
-                <td class="total">${r.toPlan}</td>
-              </tr>`).join('')}
-          </tbody>
-        </table>
-      </div>
-      ${moved.length ? `<div class="plan-warn ok">${icon('redo')}<span>${plural(moved.length, 'intervento spostato', 'interventi spostati')} al giorno libero più vicino per non sovrapporli: ${moved.slice(0, 3).map((m) => `<b>${esc(m.type.name)}</b> dal ${esc(fmtShort(m.from))} al ${esc(fmtShort(m.to))}`).join(', ')}${moved.length > 3 ? '…' : ''}</span></div>` : ''}
-      ${missing.length ? `<div class="plan-warn">${icon('alert')}<span>${missing.map((r) => `<b>${esc(r.type.name)}</b>: ${r.toPlan - r.dates.length} senza giorno disponibile`).join('<br>')}.<br>Resteranno “senza data” e potrai sceglierla dalla Home o dal calendario.</span></div>` : ''}
-      <p class="small muted" style="margin-top:12px">Ogni intervento si può comunque spostare dal calendario, anche uno per volta.</p>
-    </div>`;
+    ${open ? `<div class="plan-warn ok">${icon('calendar')}<span>Gli interventi da programmare li trovi nella <b>Home</b> (“Da programmare”) e nella scheda del condominio: li mettete in calendario uno alla volta, vedendo cosa c’è già quel giorno.</span></div>` : ''}`;
 }
 
-// ---------- Eventi ----------
+// ---------- Controlli ----------
 
 function validate() {
   const d = draft;
-  if (d.step === 1) {
-    if (!d.data.name.trim()) return 'Inserisci il nome del condominio';
-    if (!d.data.contractStart || !d.data.contractEnd) return 'Inserisci il periodo del contratto';
-    if (d.data.contractEnd < d.data.contractStart) return 'La fine del contratto è prima dell’inizio';
-    const active = d.works.filter((w) => w.qty > 0);
-    if (!active.length) return 'Inserisci almeno un lavoro da fare (tocca +)';
-    const noMonths = active.find((w) => w.plan.mode !== 'date' && !w.months.length);
-    if (noMonths) return `Scegli almeno un mese per ${store.typeById(noMonths.typeId).name}`;
-    const noDays = active.find((w) => (w.plan.mode === 'mensile' && !w.plan.days.length)
-      || (w.plan.mode === 'settimanale' && !w.plan.weekdays.length)
-      || (w.plan.mode === 'date' && !w.plan.dates.length));
-    if (noDays) {
-      d.open = d.works.indexOf(noDays);
-      return `Scegli i giorni per ${store.typeById(noDays.typeId).name} (oppure “Sceglie l’app”)`;
+  if (d.step !== 1) return '';
+  if (!d.data.name.trim()) return 'Inserisci il nome del condominio';
+  if (!d.data.contractStart || !d.data.contractEnd) return 'Inserisci il periodo del contratto';
+  if (d.data.contractEnd < d.data.contractStart) return 'La fine del contratto è prima dell’inizio';
+  const active = d.works.filter((w) => w.qty > 0);
+  if (!active.length) return 'Inserisci almeno un lavoro da fare (tocca +)';
+  for (const w of active) {
+    const name = store.typeById(w.typeId).name;
+    const at = d.works.indexOf(w);
+    if (!w.doneDates.length && w.slots.length && !w.slots.some((s) => s.date)) {
+      d.open = at;
+      return `Inserisci la data del 1° intervento di ${name}`;
     }
+    const outside = w.slots.find((s) => s.date && (s.date < d.data.contractStart || s.date > d.data.contractEnd));
+    if (outside) {
+      d.open = at;
+      return `${name}: la data ${fmtDateNum(outside.date)} è fuori dal periodo del contratto`;
+    }
+    if (w.plan.mode === 'mensile' && !w.plan.days.length) { d.open = at; return `${name}: scegli i giorni del mese oppure togli la ripetizione`; }
+    if (w.plan.mode === 'settimanale' && !w.plan.weekdays.length) { d.open = at; return `${name}: scegli i giorni della settimana oppure togli la ripetizione`; }
+    if (w.plan.mode && !w.months.length) { d.open = at; return `${name}: scegli almeno un mese`; }
   }
   return '';
+}
+
+/** Propone le date vuote di un lavoro con la sua ripetizione, evitando i giorni già occupati */
+function suggestSlots(wi) {
+  const d = draft;
+  const w = d.works[wi];
+  const dated = w.slots.filter((s) => s.date).map((s) => s.date).sort();
+  const all = [...w.doneDates, ...dated].filter(Boolean).sort();
+  const t = todayISO();
+  let from = d.data.contractStart > t ? d.data.contractStart : t;
+  const last = all[all.length - 1];
+  if (last) { const nx = parseISO(last); nx.setDate(nx.getDate() + 1); if (toISO(nx) > from) from = toISO(nx); }
+  const busyCondo = new Set(draftDates().map((x) => x.date));
+  const load = {};
+  for (const j of store.getState().jobs) if (j.date && !store.isDone(j) && j.condoId !== d.id) load[j.date] = (load[j.date] || 0) + 1;
+  const empty = w.slots.filter((s) => !s.date);
+  const dates = suggestDates({
+    plan: w.plan, from, to: d.data.contractEnd, months: w.months, count: empty.length, anchor: all[0] || null,
+    workDays: store.getState().settings.workDays, load, busyCondo,
+  });
+  dates.forEach((dt, k) => { empty[k].date = dt; });
+  w.slots.sort((a, b) => (a.date || '9999').localeCompare(b.date || '9999'));
+  if (!dates.length) toast('Nessuna data libera con questa ripetizione nel periodo del contratto');
+  else if (dates.length < empty.length) toast(`Proposte ${dates.length} date: le altre ${empty.length - dates.length} restano da programmare`);
+  else toast(`Proposte ${dates.length} date: controllale e cambiale se serve`);
 }
 
 function openNewTypeSheet() {
@@ -410,7 +465,9 @@ function openNewTypeSheet() {
       const name = s.el.querySelector('#nt-name').value.trim();
       if (!name) { toast('Scrivi il nome del lavoro'); return; }
       const type = store.saveWorkType({ name, icon: 'tool', color, months: [...months].sort((a, b) => a - b) });
-      draft.works.push({ ...newWork(type), qty: 1 });
+      const w = { ...newWork(type), qty: 1 };
+      syncSlots(w);
+      draft.works.push(w);
       draft.open = draft.works.length - 1;
       s.close();
       rerender();
@@ -436,6 +493,7 @@ async function readPdf(file) {
 
 function mount(root) {
   const d = draft;
+  const slotAt = (key) => { const [wi, si] = key.split(':').map(Number); return d.works[wi]?.slots[si]; };
 
   root.addEventListener('input', (e) => {
     const f = e.target.dataset.field;
@@ -448,11 +506,22 @@ function mount(root) {
     if (el.dataset.qtyInput !== undefined) {
       const i = Number(el.dataset.qtyInput);
       d.works[i].qty = Math.max(0, Math.min(200, Number(el.value) || 0));
+      syncSlots(d.works[i]);
       if (d.works[i].qty > 0 && d.open === null) d.open = i;
       rerender();
     }
-    if (el.dataset.doneInput !== undefined) { d.works[el.dataset.doneInput].doneBefore = Math.max(0, Number(el.value) || 0); rerender(); }
-    if (el.dataset.avoid !== undefined) { d.works[el.dataset.avoid].plan.avoidClash = el.checked; rerender(); }
+    if (el.dataset.doneInput !== undefined) {
+      const w = d.works[el.dataset.doneInput];
+      w.doneBefore = Math.max(0, Math.min(w.qty, Number(el.value) || 0));
+      syncSlots(w);
+      rerender();
+    }
+    if (el.dataset.slot) {
+      const s = slotAt(el.dataset.slot);
+      if (s) s.date = el.value || '';
+      rerender();
+    }
+    if ('period' in el.dataset) rerender();
     if ('pdf' in el.dataset && el.files?.[0]) readPdf(el.files[0]);
   });
 
@@ -479,7 +548,12 @@ function mount(root) {
       const dir = Number(ds.go);
       if (dir > 0) {
         const err = validate();
-        if (err) { toast(err); return; }
+        if (err) {
+          toast(err);
+          rerender();
+          setTimeout(() => document.querySelector('.slot.required, .work-toggle.is-missing, .work-edit-more')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60);
+          return;
+        }
       }
       d.step += dir;
       rerender();
@@ -501,7 +575,8 @@ function mount(root) {
       const i = Number(ds.qty);
       const w = d.works[i];
       w.qty = Math.max(0, Math.min(200, w.qty + Number(ds.delta)));
-      // il primo lavoro inserito apre subito la scelta dei giorni
+      syncSlots(w);
+      // il primo lavoro inserito apre subito le date
       if (w.qty > 0 && d.open === null) d.open = i;
       if (!w.qty && d.open === i) d.open = null;
       rerender();
@@ -513,9 +588,21 @@ function mount(root) {
       rerender();
       return;
     }
+    if (ds.clearSlot) {
+      const s = slotAt(ds.clearSlot);
+      if (s) s.date = '';
+      rerender();
+      return;
+    }
+    if (ds.suggest !== undefined) {
+      suggestSlots(Number(ds.suggest));
+      rerender();
+      return;
+    }
     if (ds.planMode) {
       const w = d.works[ds.work];
-      w.plan = { ...w.plan, mode: ds.planMode };
+      // toccando di nuovo la ripetizione scelta la si toglie
+      w.plan = { ...w.plan, mode: w.plan.mode === ds.planMode ? '' : ds.planMode };
       rerender();
       return;
     }
@@ -538,26 +625,10 @@ function mount(root) {
       rerender();
       return;
     }
-    if (ds.addDate !== undefined) {
-      const i = Number(ds.addDate);
-      const input = root.querySelector(`[data-new-date="${i}"]`);
-      const val = input?.value;
-      if (!val) { toast('Scegli prima una data'); return; }
-      if (val < d.data.contractStart || val > d.data.contractEnd) { toast('La data è fuori dal periodo del contratto'); return; }
-      const plan = d.works[i].plan;
-      if (!plan.dates.includes(val)) plan.dates = [...plan.dates, val].sort();
-      rerender();
-      return;
-    }
-    if (ds.delDate) {
-      const plan = d.works[ds.work].plan;
-      plan.dates = plan.dates.filter((x) => x !== ds.delDate);
-      rerender();
-      return;
-    }
     if (ds.doneBefore !== undefined) {
       const w = d.works[ds.doneBefore];
       w.doneBefore = Math.max(0, Math.min(w.qty, w.doneBefore + Number(ds.delta)));
+      syncSlots(w);
       rerender();
       return;
     }
@@ -579,8 +650,9 @@ function mount(root) {
         location.hash = `#/condomini/${id}`;
       } else {
         const condo = store.createCondo(payload);
-        const count = store.jobsOfCondo(condo.id).length;
-        toast(`${condo.name} creato: ${plural(count, 'intervento', 'interventi')} in calendario`);
+        const jobs = store.jobsOfCondo(condo.id);
+        const dated = jobs.filter((j) => j.date).length;
+        toast(`${condo.name} salvato: ${plural(dated, 'intervento', 'interventi')} in calendario${jobs.length - dated ? `, ${jobs.length - dated} da programmare` : ''}`);
         draft = null;
         location.hash = `#/condomini/${condo.id}`;
       }

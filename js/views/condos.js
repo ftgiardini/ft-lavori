@@ -4,7 +4,7 @@ import { icon } from '../icons.js';
 import { rerender, confirmDialog, toast, isWide } from '../ui.js';
 import { jobCard, progressBar, sectionHead, typeIcon, seasonChips, avatar, emptyState } from '../components.js';
 import { openAddJobSheet } from './job-sheet.js';
-import { planLabel } from '../scheduler.js';
+import { planLabel, hasRule } from '../scheduler.js';
 import { condoPaymentsSection, bindPaymentClicks } from './payments.js';
 import { esc, todayISO, relDay, fmtDateNum, monthsLabel, mapsUrl, plural } from '../utils.js';
 
@@ -158,7 +158,7 @@ export function renderDetail(id) {
         <span class="chip chip-green">${icon('check')}${s.done} fatti</span>
         <span class="chip">${icon('clock')}${s.remaining} mancano</span>
         ${s.overdue ? `<span class="chip chip-red">${icon('alert')}${s.overdue} in ritardo</span>` : ''}
-        ${s.unscheduled ? `<span class="chip chip-amber">${icon('calendar')}${s.unscheduled} senza data</span>` : ''}
+        ${s.unscheduled ? `<span class="chip chip-amber">${icon('calendar')}${s.unscheduled} da programmare</span>` : ''}
       </div>
     </div>`;
 
@@ -185,10 +185,11 @@ export function renderDetail(id) {
             <span>Mancano <b class="strong">${ws.remaining}</b></span>
             ${ws.next ? `<span class="muted">· prossimo ${relDay(ws.next.date)}</span>` : ''}
             ${ws.overdue ? `<span class="chip chip-red">${ws.overdue} in ritardo</span>` : ''}
-            ${ws.unscheduled ? `<span class="chip chip-amber">${ws.unscheduled} senza data</span>` : ''}
+            ${ws.unscheduled ? `<span class="chip chip-amber">${ws.unscheduled} da programmare</span>` : ''}
             ${w.doneBefore ? `<span class="chip">${w.doneBefore} fatti prima dell'app</span>` : ''}
           </div>
           ${w.notes ? `<p class="small muted" style="margin-top:8px">${esc(w.notes)}</p>` : ''}
+          ${admin && ws.unscheduled ? (() => { const next = store.pendingJobsOf(w.id).find((j) => !j.date); return next ? `<button class="btn btn-primary btn-sm btn-block" style="margin-top:10px" data-action="schedule-job" data-id="${next.id}">${icon('calendar')}Programma il prossimo intervento</button>` : ''; })() : ''}
         </div>`;
       }).join('')}
       </div>
@@ -220,14 +221,16 @@ export function renderDetail(id) {
       ${history.length > 5 ? `<button class="link-btn" style="margin-top:8px" data-history>${showAllHistory ? 'Mostra meno' : `Mostra tutti (${history.length})`}</button>` : ''}
     </div>`;
 
+  const canSuggest = condo.works.some((w) => hasRule(w.plan) && store.pendingJobsOf(w.id).some((j) => !j.date));
   const adminSec = admin ? `
     <div class="section">
       <div class="card card-flush divided">
-        <button class="menu-row" data-replan>
+        ${canSuggest ? `
+        <button class="menu-row" data-fill>
           <span class="row-ic">${icon('sparkles')}</span>
-          <span class="grow"><strong>Ripianifica automaticamente</strong><small>Ridistribuisce da oggi gli interventi che mancano</small></span>
+          <span class="grow"><strong>Proponi le date che mancano</strong><small>Mette in calendario gli interventi da programmare usando la ripetizione di ogni lavoro</small></span>
           ${icon('right')}
-        </button>
+        </button>` : ''}
         ${store.can('elimina') ? `
         <button class="menu-row danger" data-delete>
           <span class="row-ic">${icon('trash')}</span>
@@ -257,13 +260,16 @@ export function renderDetail(id) {
         if (e.target.closest('a.disabled')) e.preventDefault();
         if (e.target.closest('[data-history]')) { showAllHistory = !showAllHistory; rerender(); }
         if (e.target.closest('[data-add-job]')) openAddJobSheet({ condoId: id, date: t });
-        if (e.target.closest('[data-replan]')) {
+        if (e.target.closest('[data-fill]')) {
           const ok = await confirmDialog({
-            title: 'Ripianificare?',
-            message: 'Gli interventi non ancora fatti verranno ridistribuiti da oggi a fine contratto. Spostamenti e assegnazioni fatti a mano su questi interventi andranno persi.',
-            confirmText: 'Ripianifica',
+            title: 'Proporre le date?',
+            message: 'Gli interventi ancora da programmare vengono messi in calendario secondo la ripetizione di ogni lavoro, evitando i giorni già pieni. Quelli già in calendario non cambiano.',
+            confirmText: 'Proponi le date',
           });
-          if (ok) { store.replanCondo(id); toast('Calendario del condominio ricalcolato'); }
+          if (ok) {
+            const n = store.fillSuggested(id);
+            toast(n ? `${plural(n, 'intervento messo', 'interventi messi')} in calendario: controllali qui sotto` : 'Nessuna data libera trovata con la ripetizione');
+          }
         }
         if (e.target.closest('[data-delete]') && store.can('elimina')) {
           const ok = await confirmDialog({ title: `Eliminare ${condo.name}?`, message: 'Verranno cancellati il condominio e tutti i suoi interventi, anche quelli già fatti. Non si può annullare.', confirmText: 'Elimina', danger: true });

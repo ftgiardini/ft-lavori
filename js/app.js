@@ -2,7 +2,7 @@
 import * as store from './store.js';
 import { icon } from './icons.js';
 import { avatar, memberSub } from './components.js';
-import { toggleDone, openPostponeSheet, openJobSheet, openDoneSheet } from './views/job-sheet.js';
+import { toggleDone, openPostponeSheet, openJobSheet, openDoneSheet, openScheduleSheet } from './views/job-sheet.js';
 import { openEventSheet, toggleEvent, openEventReport } from './views/event-sheet.js';
 import * as home from './views/home.js';
 import * as today from './views/today.js';
@@ -320,6 +320,7 @@ document.addEventListener('click', (e) => {
   }
   if (action === 'postpone') openPostponeSheet(id);
   if (action === 'register-done') openDoneSheet(id);
+  if (action === 'schedule-job') openScheduleSheet(id);
   if (action === 'report-event') openEventReport(id);
   if (action === 'open-job') openJobSheet(id);
   if (action === 'open-event') openEventSheet(id);
@@ -410,7 +411,7 @@ if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
 
 // Sul telefono l'app installata resta aperta in sottofondo per giorni e non ricarica i file:
 // ogni volta che torna in primo piano controlla se è uscita una versione nuova e si aggiorna.
-const APP_VERSION = 'v23';
+const APP_VERSION = 'v24';
 let updating = false;
 async function checkForUpdate({ force = false } = {}) {
   if (updating || !navigator.onLine || !location.protocol.startsWith('http')) return;

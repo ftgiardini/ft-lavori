@@ -4,7 +4,7 @@ import { openSheet, toast, confirmDialog } from '../ui.js';
 import { icon } from '../icons.js';
 import { typeIcon, avatar, daysLabel } from '../components.js';
 import { POSTPONE_REASONS, DURATIONS } from '../data.js';
-import { esc, fmtLong, fmtShort, fmtTime, fmtDuration, addDays, todayISO, relDay, mapsUrl, parseISO } from '../utils.js';
+import { esc, fmtLong, fmtShort, fmtTime, fmtDuration, addDays, todayISO, relDay, mapsUrl, parseISO, plural } from '../utils.js';
 
 /**
  * Spunta o toglie la spunta.
@@ -151,6 +151,76 @@ export function openDoneSheet(id) {
   });
 }
 
+// ---------- Programma / sposta un intervento ----------
+
+/** Cosa c'è già in un giorno: per incastrare il lavoro con gli altri */
+function dayAgendaHtml(iso, exceptJobId) {
+  if (!iso) return '';
+  const { jobs, events } = store.dayAgenda(iso, exceptJobId);
+  const rows = [
+    ...events.map((e) => `<li><i style="--c:#4F7CAC"></i><b>${esc(e.title)}</b>${e.time ? ` · ${esc(e.time)}` : ''}</li>`),
+    ...jobs.map((j) => `<li><i style="--c:${store.typeById(j.typeId).color}"></i><b>${esc(store.typeById(j.typeId).name)}</b> · ${esc(store.condoById(j.condoId)?.name || '')}${j.assignees?.length ? ` · ${esc(j.assignees.map((x) => store.memberById(x)?.name).filter(Boolean).join(', '))}` : ''}</li>`),
+  ];
+  const full = jobs.length >= 4;
+  return `
+    <div class="day-box ${full ? 'is-full' : ''}">
+      <strong>${esc(fmtLong(iso, true))}: ${jobs.length ? plural(jobs.length, 'lavoro già in programma', 'lavori già in programma') : 'nessun lavoro in programma'}${full ? ' · giornata piena' : ''}</strong>
+      ${rows.length ? `<ul>${rows.join('')}</ul>` : ''}
+      ${!store.getState().settings.workDays.includes(parseISO(iso).getDay()) ? `<p class="small is-amber">Non è un giorno lavorativo.</p>` : ''}
+    </div>`;
+}
+
+export function openScheduleSheet(id) {
+  const job = store.jobById(id);
+  if (!job || !store.isAdmin()) return;
+  const type = store.typeById(job.typeId);
+  const condo = store.condoById(job.condoId);
+  const num = store.jobNumber(job);
+  const suggestion = store.suggestNext(job);
+  const t = todayISO();
+  let date = job.date || suggestion || '';
+
+  const s = openSheet({
+    title: job.date ? 'Sposta intervento' : 'Programma intervento',
+    subtitle: `${esc(type.name)}${num ? ` · ${num.n}° di ${num.of}` : ''} · ${esc(condo?.name || '')}`,
+    body: `
+      ${suggestion ? `
+      <button class="suggest-btn ${date === suggestion ? 'on' : ''}" data-pick="${suggestion}">
+        ${icon('sparkles')}<span class="grow"><small>Data proposta con la ripetizione</small><strong>${esc(fmtLong(suggestion, true))}</strong></span>${icon('check')}
+      </button>` : `<p class="small muted">Scegli il giorno guardando cosa c’è già in calendario.${condo?.works.some((w) => w.id === job.workId && w.plan?.mode) ? '' : ' (Se imposti la ripetizione del lavoro, l’app ti propone la data.)'}</p>`}
+      <div class="field" style="margin-top:14px">
+        <label for="sc-date">Giorno</label>
+        <input id="sc-date" class="input" type="date" value="${esc(date)}" min="${esc(condo?.contractStart && condo.contractStart > t ? condo.contractStart : t)}" ${condo?.contractEnd ? `max="${esc(condo.contractEnd)}"` : ''}>
+      </div>
+      <div data-day>${dayAgendaHtml(date, id)}</div>
+      ${job.date ? `<button class="link-btn" style="margin-top:12px" data-unschedule>${icon('x')}Togli la data (torna da programmare)</button>` : ''}`,
+    footer: `<button class="btn btn-ghost" data-close>Annulla</button><button class="btn btn-primary" data-ok ${date ? '' : 'disabled'}>${icon('calendar')}${job.date ? 'Sposta' : 'Metti in calendario'}</button>`,
+  });
+  const $ = (q) => s.el.querySelector(q);
+  const setDate = (d) => {
+    date = d;
+    $('#sc-date').value = d;
+    $('[data-day]').innerHTML = dayAgendaHtml(d, id);
+    $('[data-ok]').disabled = !d;
+    s.el.querySelector('[data-pick]')?.classList.toggle('on', d === suggestion);
+  };
+  s.el.addEventListener('click', (e) => {
+    const pick = e.target.closest('[data-pick]');
+    if (pick) setDate(pick.dataset.pick);
+    if (e.target.closest('[data-unschedule]')) {
+      store.setJobDate(id, null);
+      s.close();
+      toast('Tolta la data: ora è da programmare');
+    }
+    if (e.target.closest('[data-ok]') && date) {
+      store.setJobDate(id, date);
+      s.close();
+      toast(`${type.name} in calendario: ${fmtLong(date)}`);
+    }
+  });
+  $('#sc-date').addEventListener('change', (e) => setDate(e.target.value));
+}
+
 // ---------- Rimanda ----------
 
 export function openPostponeSheet(id) {
@@ -269,10 +339,7 @@ export function openJobSheet(id) {
         <div class="info-row">
           ${icon('calendar')}
           <div class="grow"><span class="label">Data</span><span class="value">${job.date ? `${fmtLong(job.date, true)} <span class="muted">· ${relDay(job.date)}</span>` : 'Da programmare'}</span></div>
-          ${admin && !done ? `<button class="btn btn-soft btn-sm" data-act="show-date">Cambia</button>` : ''}
-        </div>
-        <div class="info-row" data-date-row hidden>
-          <input class="input" type="date" data-newdate value="${job.date || ''}" aria-label="Nuova data">
+          ${admin && !done ? `<button class="btn ${job.date ? 'btn-soft' : 'btn-primary'} btn-sm" data-act="schedule">${job.date ? 'Sposta' : 'Programma'}</button>` : ''}
         </div>
         <div class="info-row">
           ${icon('building')}
@@ -337,7 +404,7 @@ export function openJobSheet(id) {
       }
       case 'register': s.close(); setTimeout(() => openDoneSheet(id), 230); break;
       case 'postpone': openPostponeSheet(id); break;
-      case 'show-date': s.el.querySelector('[data-date-row]').hidden = false; break;
+      case 'schedule': s.close(); setTimeout(() => openScheduleSheet(id), 230); break;
       case 'assign-all': {
         const avail = store.fieldTeam().filter((m) => store.isAvailable(m, job.date)).map((m) => m.id);
         const allOn = avail.length > 0 && avail.every((mid) => job.assignees.includes(mid));
@@ -361,10 +428,6 @@ export function openJobSheet(id) {
   });
   s.el.addEventListener('change', (e) => {
     if (e.target.matches('[data-note]')) store.setJobNote(id, e.target.value.trim());
-    if (e.target.matches('[data-newdate]') && e.target.value) {
-      store.setJobDate(id, e.target.value);
-      toast(`Spostato a ${fmtLong(e.target.value)}`);
-    }
   });
 
   draw();
@@ -390,7 +453,7 @@ export function openAddJobSheet({ date = todayISO(), condoId = '' } = {}) {
     const used = new Set(contract.map((w) => w.typeId));
     const others = store.getState().workTypes.filter((t) => !used.has(t.id));
     return `
-      ${contract.length ? `<optgroup label="Previsti dal contratto">${contract.map((w) => `<option value="w:${w.id}">${esc(store.typeById(w.typeId).name)}</option>`).join('')}</optgroup>` : ''}
+      ${contract.length ? `<optgroup label="Previsti dal contratto">${contract.map((w) => { const open = store.pendingJobsOf(w.id).filter((j) => !j.date).length; return `<option value="w:${w.id}">${esc(store.typeById(w.typeId).name)}${open ? ` (programma il prossimo · ${open} da programmare)` : ''}</option>`; }).join('')}</optgroup>` : ''}
       <optgroup label="Altri lavori (in più, fuori contratto)">
         ${others.map((t) => `<option value="t:${t.id}">${esc(t.name)}</option>`).join('')}
         ${contract.map((w) => `<option value="t:${w.typeId}">${esc(store.typeById(w.typeId).name)} (in più)</option>`).join('')}
@@ -411,7 +474,7 @@ export function openAddJobSheet({ date = todayISO(), condoId = '' } = {}) {
       <div class="field"><label for="aj-date">Data</label><input id="aj-date" class="input" type="date" value="${date}"></div>
       <div class="field"><label for="aj-note">Nota <span class="muted">(facoltativa)</span></label>
         <textarea id="aj-note" class="textarea" rows="2" placeholder="Es. richiesta dall'amministratore"></textarea></div>
-      <p class="small muted">I lavori <b class="strong">previsti dal contratto</b> contano nel conteggio (es. 4 di 10). Quelli <b class="strong">in più</b> restano fuori dal contratto.</p>`,
+      <p class="small muted">Scegliendo un lavoro <b class="strong">del contratto</b> si mette in calendario il prossimo intervento da programmare. Quelli <b class="strong">in più</b> restano fuori dal contratto.</p>`,
     footer: `<button class="btn btn-ghost" data-close>Annulla</button><button class="btn btn-primary" data-ok>${icon('plus')}Aggiungi</button>`,
   });
 
@@ -438,6 +501,16 @@ export function openAddJobSheet({ date = todayISO(), condoId = '' } = {}) {
       payload.typeId = type.id;
     } else if (val.startsWith('w:')) {
       payload.workId = val.slice(2);
+      // se il contratto ha ancora interventi da programmare, si mette in calendario il prossimo (non uno in più)
+      const next = store.pendingJobsOf(payload.workId).find((j) => !j.date);
+      if (next && d) {
+        store.setJobDate(next.id, d);
+        if (note) store.setJobNote(next.id, note);
+        const num = store.jobNumber(store.jobById(next.id));
+        toast(`${num ? `${num.n}° intervento` : 'Intervento'} messo in calendario per ${fmtLong(d)}`);
+        s.close();
+        return;
+      }
     } else {
       payload.typeId = val.slice(2);
     }
