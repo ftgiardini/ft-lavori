@@ -7,6 +7,7 @@ import { PAYMENT_METHODS } from '../data.js';
 import { esc, todayISO, fmtEuro, fmtDateNum, relDay, diffDays, addMonths, plural } from '../utils.js';
 
 const DB_UPDATE_MSG = 'Per usare i pagamenti va aggiornato il database: riesegui schema.sql su Supabase (vedi guida).';
+const DB_ROLE_MSG = 'Il database non ti permette ancora di vedere i pagamenti: su Supabase va eseguito il file aggiornamento-martina.sql (vedi guida).';
 let tab = 'aperti';
 let query = '';
 
@@ -122,7 +123,7 @@ export function bindPaymentClicks(root) {
 
 export function render() {
   if (!store.can('pagamenti')) {
-    return { title: 'Pagamenti', html: `<div class="card">${emptyState('lock', 'Accesso riservato', 'I pagamenti li vedono solo Nicolas e Alessandro.')}</div>` };
+    return { title: 'Pagamenti', html: `<div class="card">${emptyState('lock', 'Accesso riservato', 'I pagamenti li vedono solo Nicolas, Martina e Alessandro.')}</div>` };
   }
   const wide = isWide();
   const tot = store.paymentTotals();
@@ -225,7 +226,7 @@ export function render() {
         <li><b>Le rate non pagate dopo la scadenza diventano rosse</b> e compaiono in “Scaduti”: tocca <b>Sollecita</b> per mandare all’amministratore il promemoria su WhatsApp, già scritto.</li>
         <li>In <b>Clienti</b> trovi tutti i condomini con telefono, email e situazione dei pagamenti.</li>
       </ol>
-    </details>    ${!available ? `<div class="plan-warn">${icon('alert')}<span>${DB_UPDATE_MSG}</span></div>` : ''}
+    </details>    ${!available ? `<div class="plan-warn">${icon('alert')}<span>${DB_UPDATE_MSG}</span></div>` : store.paymentsBlocked() ? `<div class="plan-warn">${icon('alert')}<span>${DB_ROLE_MSG}</span></div>` : ''}
     ${kpis}
     ${tabs}
     ${body}
@@ -269,6 +270,7 @@ export function render() {
 export function openPaymentForm({ id = null, condoId = '', mode = 'piano' } = {}) {
   if (!store.can('pagamenti')) return;
   if (!store.paymentsAvailable()) { toast(DB_UPDATE_MSG, { duration: 8000 }); return; }
+  if (store.paymentsBlocked()) { toast(DB_ROLE_MSG, { duration: 8000 }); return; }
   const condos = [...store.getState().condos].sort((a, b) => a.name.localeCompare(b.name));
   if (!condos.length) { toast('Aggiungi prima un condominio'); return; }
   const p = id ? store.paymentById(id) : null;

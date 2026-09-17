@@ -98,6 +98,19 @@ async function startSession(uid) {
   // senza dati sul telefono non c'è niente da inviare: si scarica e basta
   if (memberById(uid)) refresh();
   else await refresh({ discardLocal: true });
+  checkPaymentsAccess();
+}
+
+// Il permesso sui pagamenti lo decide il database: se non è aggiornato la pagina lo dice
+let paymentsDbAllowed = null;
+export const paymentsBlocked = () => isCloud && can('pagamenti') && paymentsDbAllowed === false;
+async function checkPaymentsAccess() {
+  if (!isCloud || !can('pagamenti')) return;
+  const allowed = await cloud.canSeePayments();
+  if (allowed !== null && allowed !== paymentsDbAllowed) {
+    paymentsDbAllowed = allowed;
+    emit('status');
+  }
 }
 
 /** Invia le modifiche in sospeso e riscarica tutto dal database */
@@ -113,6 +126,7 @@ export async function refresh({ discardLocal = false } = {}) {
     state = { ...emptyCloudState(), ...data };
     saveCache();
     emit('remote');
+    if (paymentsDbAllowed !== true) checkPaymentsAccess();
   } catch (e) {
     console.warn('Aggiornamento non riuscito', e);
     emit('status');
@@ -232,6 +246,7 @@ export async function login(memberId, password) {
 export async function logout() {
   if (!isCloud) { setCurrentUser(null); emit('local'); return; }
   cloudUserId = null;
+  paymentsDbAllowed = null;
   await cloud.signOut();
   safeDel(CACHE_KEY);
   state = emptyCloudState();
@@ -493,7 +508,8 @@ export function workLog({ from = null, to = null, memberId = null } = {}) {
     out.push({
       kind: 'job', id: j.id, date: j.date, at: info.at, by: info.by, team: info.team.length ? info.team : [info.by].filter(Boolean),
       minutes: info.minutes, note: info.note, title: type.name, where: condoById(j.condoId)?.name || '', color: type.color,
-      reported: !!(info.minutes || info.note),
+      reported: !!(info.minutes || info.note || info.past),
+      past: info.past,
     });
   }
   for (const e of state.events || []) {
@@ -535,6 +551,7 @@ export function doneInfo(job) {
     minutes: Number(entry?.minutes) || 0,
     note: entry?.note || '',
     team: entry?.team || [],
+    past: !!entry?.past,
   };
 }
 
@@ -782,7 +799,7 @@ export function workChecks() {
     late: overdueJobs(),
     unscheduled: unscheduledJobs(),
     // fatti negli ultimi 30 giorni senza scrivere quanto tempo o cosa è stato fatto
-    noReport: done.filter((j) => { const i = doneInfo(j); return !i.minutes && !i.note; }).sort((a, b) => b.date.localeCompare(a.date)),
+    noReport: done.filter((j) => { const i = doneInfo(j); return !i.minutes && !i.note && !i.past; }).sort((a, b) => b.date.localeCompare(a.date)),
     doneMonth: done.length,
     minutesMonth: done.reduce((a, j) => a + (doneInfo(j).minutes || 0), 0),
     // condomini con contratto finito ma interventi ancora da fare
@@ -954,28 +971,47 @@ export function dayAgenda(iso, exceptJobId = null) {
 
 /**
  * Applica le date scelte nel modulo del condominio.
- * slots = interventi da fare, in ordine: [{ jobId?, date }] (date vuota = da programmare)
+ * slots = interventi ancora aperti, in ordine: [{ jobId?, date, done? }]
+ *  date vuota = da programmare · done = già fatto in quella data (il pregresso)
  */
 function applySlots(condo, work, slots) {
   const pending = state.jobs.filter((j) => j.workId === work.id && !isDone(j));
   const keep = new Set();
   for (const slot of slots) {
     const date = slot.date || null;
-    const existing = slot.jobId ? pending.find((j) => j.id === slot.jobId) : null;
-    if (existing) {
-      keep.add(existing.id);
-      if (existing.date !== date) {
-        log(existing, { type: 'spostato', from: existing.date, to: date });
-        existing.date = date;
-        fitAssignees(existing);
+    let job = slot.jobId ? pending.find((j) => j.id === slot.jobId) : null;
+    if (job) {
+      if (job.date !== date) {
+        log(job, { type: 'spostato', from: job.date, to: date });
+        job.date = date;
+        fitAssignees(job);
       }
     } else {
-      const j = newJob(condo, work, date);
-      state.jobs.push(j);
-      keep.add(j.id);
+      job = newJob(condo, work, date);
+      state.jobs.push(job);
     }
+    keep.add(job.id);
+    if (slot.done && date && date <= todayISO()) markDoneOn(job, date);
   }
   state.jobs = state.jobs.filter((j) => !(j.workId === work.id && !isDone(j) && !keep.has(j.id)));
+}
+
+/** Un intervento da fare risulta già fatto in una data passata (dal pannello "Programma") */
+export function markDonePast(id, date) {
+  const j = jobById(id);
+  if (!j || isDone(j) || !date || date > todayISO()) return;
+  markDoneOn(j, date);
+  commit();
+}
+
+/** Segna come fatto in una data passata (interventi fatti prima di inserirli nell'app) */
+function markDoneOn(job, date) {
+  if (isDone(job)) return;
+  job.status = DONE;
+  job.date = date;
+  job.doneAt = new Date(`${date}T12:00:00`).getTime();
+  job.doneBy = currentUser()?.id || null;
+  log(job, { type: 'fatto', past: true });
 }
 
 /** Senza date dal modulo (es. backup vecchi): tiene quelli che ci sono e aggiunge/toglie quelli da programmare */

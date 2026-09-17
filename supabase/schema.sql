@@ -282,10 +282,10 @@ end $$;
 drop trigger if exists events_guard on public.events;
 create trigger events_guard before update on public.events for each row execute function public.events_guard();
 
--- Pagamenti: solo il titolare e l'amministrazione li vedono e li modificano
+-- Pagamenti: li vedono e li modificano titolare, ufficio e amministrazione
 create or replace function public.can_see_payments() returns boolean
 language sql stable security definer set search_path = public as $$
-  select coalesce((select role in ('titolare', 'amministrazione') from public.profiles where id = auth.uid()), false)
+  select coalesce((select role in ('titolare', 'ufficio', 'amministrazione') from public.profiles where id = auth.uid()), false)
 $$;
 drop policy if exists "pagamenti contabilita" on public.payments;
 create policy "pagamenti contabilita" on public.payments for all to authenticated

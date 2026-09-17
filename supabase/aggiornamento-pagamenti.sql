@@ -24,10 +24,10 @@ alter table public.payments enable row level security;
 revoke all on public.payments from anon;
 grant select, insert, update, delete on public.payments to authenticated;
 
--- solo il titolare e l'amministrazione vedono e modificano i pagamenti
+-- titolare, ufficio e amministrazione vedono e modificano i pagamenti
 create or replace function public.can_see_payments() returns boolean
 language sql stable security definer set search_path = public as $$
-  select coalesce((select role in ('titolare', 'amministrazione') from public.profiles where id = auth.uid()), false)
+  select coalesce((select role in ('titolare', 'ufficio', 'amministrazione') from public.profiles where id = auth.uid()), false)
 $$;
 drop policy if exists "pagamenti contabilita" on public.payments;
 create policy "pagamenti contabilita" on public.payments for all to authenticated

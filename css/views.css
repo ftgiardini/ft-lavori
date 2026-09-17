@@ -515,3 +515,8 @@
 .plan-row .btn { flex: none; }
 .is-green { color: var(--green-700); font-weight: 700; }
 .is-green .ic { width: 12px; height: 12px; vertical-align: -1px; }
+
+/* Interventi già fatti inseriti con la loro data */
+.slot.past { background: #EEF7EA; border-color: var(--green-100); }
+.slot-done { display: flex; align-items: center; gap: 7px; margin: 6px 2px 0; font-size: 13px; font-weight: 700; color: var(--green-700); cursor: pointer; }
+.slot-done input { width: 18px; height: 18px; accent-color: var(--green); }

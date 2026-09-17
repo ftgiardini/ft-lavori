@@ -190,19 +190,27 @@ export function openScheduleSheet(id) {
       </button>` : `<p class="small muted">Scegli il giorno guardando cosa c’è già in calendario.${condo?.works.some((w) => w.id === job.workId && w.plan?.mode) ? '' : ' (Se imposti la ripetizione del lavoro, l’app ti propone la data.)'}</p>`}
       <div class="field" style="margin-top:14px">
         <label for="sc-date">Giorno</label>
-        <input id="sc-date" class="input" type="date" value="${esc(date)}" min="${esc(condo?.contractStart && condo.contractStart > t ? condo.contractStart : t)}" ${condo?.contractEnd ? `max="${esc(condo.contractEnd)}"` : ''}>
+        <input id="sc-date" class="input" type="date" value="${esc(date)}" ${condo?.contractStart ? `min="${esc(condo.contractStart)}"` : ''} ${condo?.contractEnd ? `max="${esc(condo.contractEnd)}"` : ''}>
       </div>
+      <label class="check-row" data-past-row style="margin-top:10px" ${date && date < t ? '' : 'hidden'}>
+        <input type="checkbox" data-past checked>
+        <span><b class="strong">Già fatto in questa data</b><small>Per gli interventi fatti prima di inserirli nell’app: conta tra quelli fatti</small></span>
+      </label>
       <div data-day>${dayAgendaHtml(date, id)}</div>
       ${job.date ? `<button class="link-btn" style="margin-top:12px" data-unschedule>${icon('x')}Togli la data (torna da programmare)</button>` : ''}`,
-    footer: `<button class="btn btn-ghost" data-close>Annulla</button><button class="btn btn-primary" data-ok ${date ? '' : 'disabled'}>${icon('calendar')}${job.date ? 'Sposta' : 'Metti in calendario'}</button>`,
+    footer: `<button class="btn btn-ghost" data-close>Annulla</button><button class="btn btn-primary" data-ok ${date ? '' : 'disabled'}>${icon('calendar')}<span data-ok-label>${job.date ? 'Sposta' : 'Metti in calendario'}</span></button>`,
   });
   const $ = (q) => s.el.querySelector(q);
+  const isPastDone = () => date && date < t && $('[data-past]').checked;
+  const syncLabel = () => { $('[data-ok-label]').textContent = isPastDone() ? 'Segna come già fatto' : job.date ? 'Sposta' : 'Metti in calendario'; };
   const setDate = (d) => {
     date = d;
     $('#sc-date').value = d;
-    $('[data-day]').innerHTML = dayAgendaHtml(d, id);
+    $('[data-day]').innerHTML = d && d < t ? '' : dayAgendaHtml(d, id);
+    $('[data-past-row]').hidden = !(d && d < t);
     $('[data-ok]').disabled = !d;
     s.el.querySelector('[data-pick]')?.classList.toggle('on', d === suggestion);
+    syncLabel();
   };
   s.el.addEventListener('click', (e) => {
     const pick = e.target.closest('[data-pick]');
@@ -213,12 +221,20 @@ export function openScheduleSheet(id) {
       toast('Tolta la data: ora è da programmare');
     }
     if (e.target.closest('[data-ok]') && date) {
+      if (isPastDone()) {
+        store.markDonePast(id, date);
+        s.close();
+        toast(`${type.name}: segnato come già fatto il ${fmtShort(date)}`);
+        return;
+      }
       store.setJobDate(id, date);
       s.close();
       toast(`${type.name} in calendario: ${fmtLong(date)}`);
     }
   });
   $('#sc-date').addEventListener('change', (e) => setDate(e.target.value));
+  $('[data-past]').addEventListener('change', syncLabel);
+  syncLabel();
 }
 
 // ---------- Rimanda ----------

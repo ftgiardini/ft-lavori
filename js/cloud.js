@@ -213,6 +213,17 @@ export async function fetchLoginList() {
   return data.map(tableByName.profiles.fromRow);
 }
 
+/** Il database permette alla persona collegata di vedere i pagamenti? (null = non si sa, es. offline) */
+export async function canSeePayments() {
+  try {
+    const { data, error } = await getClient().rpc('can_see_payments');
+    if (error) return null;
+    return data === true;
+  } catch {
+    return null;
+  }
+}
+
 /** Crea persone, imposta password, elimina accessi (solo titolare, tramite funzione sul server) */
 export async function manageUsers(body) {
   const { data, error } = await getClient().functions.invoke('gestione-utenti', { body });

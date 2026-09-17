@@ -138,7 +138,7 @@ export function render() {
   const paySec = !store.can('pagamenti') ? '' : `
     <div class="section" id="solleciti">
       ${sectionHead('Pagamenti da sollecitare', '<a class="link-btn" href="#/pagamenti">Tutti i pagamenti</a>')}
-      ${!store.paymentsAvailable() ? `<div class="plan-warn">${icon('alert')}<span>Per usare i pagamenti va rieseguito schema.sql su Supabase (vedi guida).</span></div>` : ''}
+      ${!store.paymentsAvailable() ? `<div class="plan-warn">${icon('alert')}<span>Per usare i pagamenti va aggiornato il database su Supabase (vedi guida).</span></div>` : store.paymentsBlocked() ? `<div class="plan-warn">${icon('alert')}<span>Il database non ti permette ancora di vedere i pagamenti: va eseguito aggiornamento-martina.sql su Supabase.</span></div>` : ''}
       ${toCall.length ? `<div class="client-grid">${toCall.map((x) => `
         <div class="card client-card">
           <a class="row" href="#/condomini/${x.condo.id}">
@@ -385,16 +385,16 @@ export function render() {
       <div class="home-head">${hello}${actions}</div>
       ${kpis}
       <div class="cols">
-        <div class="cols-main">${summaryCard()}${unscheduledSec}${overdueSec}${doneLogSec}${remainingSec}${deadlinesSec}</div>
+        <div class="cols-main">${summaryCard()}${unscheduledSec}${paySec}${overdueSec}${doneLogSec}${remainingSec}${deadlinesSec}</div>
         <aside class="cols-side">${eventsSec}${crewSec}${todaySec}${seasonSec}</aside>
       </div>`
-      : `${hello}${kpis}${summaryCard()}${actions}${unscheduledSec}${overdueSec}${doneLogSec}${eventsSec}${crewSec}${remainingSec}${deadlinesSec}${seasonSec}`);
+      : `${hello}${kpis}${summaryCard()}${actions}${unscheduledSec}${paySec}${overdueSec}${doneLogSec}${eventsSec}${crewSec}${remainingSec}${deadlinesSec}${seasonSec}`);
 
   return {
     title: 'Home',
     html,
     mount(root) {
-      if (amministra) bindPaymentClicks(root);
+      if (store.can('pagamenti')) bindPaymentClicks(root);
       root.addEventListener('click', (e) => {
         const sc = e.target.closest('[data-scroll]');
         if (sc) document.getElementById(sc.dataset.scroll)?.scrollIntoView({ behavior: 'smooth', block: 'start' });

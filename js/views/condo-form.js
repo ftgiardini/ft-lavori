@@ -241,19 +241,24 @@ function datesEditor(w, wi) {
   let n = doneN;
   return `
     <span class="label">Date degli interventi</span>
-    <p class="hint" style="margin:2px 0 10px">${firstRequired ? '<b>La data del 1° intervento è obbligatoria.</b> ' : ''}Le altre puoi lasciarle vuote: restano “da programmare” e le mettete in calendario più avanti, una alla volta.</p>
+    <p class="hint" style="margin:2px 0 10px">${firstRequired ? '<b>La data del 1° intervento è obbligatoria.</b> ' : ''}Le altre puoi lasciarle vuote: restano “da programmare” e le mettete in calendario più avanti, una alla volta.
+      <br>Interventi <b>già fatti</b>? Metti la loro data (anche passata) e lascia la spunta “già fatto”: così l’app sa quanti ne mancano.</p>
     <div class="slots">
       ${w.doneBefore ? `<div class="slot done"><span class="slot-n">1–${w.doneBefore}</span><span class="grow small">fatti prima di usare l’app</span></div>` : ''}
       ${w.doneDates.map((dt, k) => `<div class="slot done"><span class="slot-n">${(w.doneBefore || 0) + k + 1}°</span><span class="grow small">${icon('check')} fatto ${dt ? `il ${esc(fmtDateNum(dt))}` : ''}</span></div>`).join('')}
       ${w.slots.map((s, si) => {
         n++;
         const required = firstRequired && si === 0;
+        const canBeDone = s.date && s.date <= t;
         return `
-        <div class="slot ${s.date ? 'set' : ''} ${required && !s.date ? 'required' : ''}">
+        <div class="slot ${s.date ? 'set' : ''} ${s.done && canBeDone ? 'past' : ''} ${required && !s.date ? 'required' : ''}">
           <label class="slot-n" for="slot-${wi}-${si}">${n}°${required ? ' *' : ''}</label>
           <div class="grow" style="min-width:0">
-            <input id="slot-${wi}-${si}" class="input slot-input" type="date" value="${esc(s.date)}" min="${esc(draft.data.contractStart || t)}" max="${esc(draft.data.contractEnd || '')}" data-slot="${wi}:${si}">
-            ${s.date ? dateWarnings(s.date, wi, si) : `<span class="slot-hint">${required ? 'obbligatoria' : 'da programmare più avanti'}</span>`}
+            <input id="slot-${wi}-${si}" class="input slot-input" type="date" value="${esc(s.date)}" max="${esc(draft.data.contractEnd || '')}" data-slot="${wi}:${si}">
+            ${canBeDone ? `
+            <label class="slot-done"><input type="checkbox" data-slot-done="${wi}:${si}" ${s.done ? 'checked' : ''}> già fatto in questa data</label>` : ''}
+            ${s.date ? (s.done && canBeDone ? '' : dateWarnings(s.date, wi, si)) : `<span class="slot-hint">${required ? 'obbligatoria' : 'da programmare più avanti'}</span>`}
+            ${canBeDone && !s.done && s.date < t ? '<span class="slot-warn">data passata: se non è stato fatto risulterà in ritardo</span>' : ''}
           </div>
           ${s.date ? `<button class="icon-btn" data-clear-slot="${wi}:${si}" aria-label="Togli la data">${icon('x')}</button>` : ''}
         </div>`;
@@ -306,8 +311,11 @@ function stepWorks() {
       const type = store.typeById(w.typeId);
       const on = w.qty > 0;
       const open = on && d.open === i;
-      const set = w.slots.filter((s) => s.date).length;
-      const missingFirst = on && !w.doneDates.length && w.slots.length && !set;
+      const today = todayISO();
+      const pastDone = w.slots.filter((s) => s.done && s.date && s.date <= today).length;
+      const set = w.slots.filter((s) => s.date).length - pastDone;
+      const doneAll = pastDone + w.doneDates.length + (w.doneBefore || 0);
+      const missingFirst = on && !w.doneDates.length && w.slots.length && !set && !pastDone;
       const badge = w.found ? (w.qtyFound ? `<span class="found">${icon('sparkles')}Dal contratto</span>` : `<span class="found warn">${icon('alert')}Controlla quantità</span>`) : '';
       return `
       <div class="work-edit ${on ? 'on' : ''}" style="--c:${type.color}">
@@ -316,7 +324,7 @@ function stepWorks() {
           <div class="grow">
             <strong>${esc(type.name)}</strong> ${badge}
             <div class="small muted">${on
-              ? `${plural(w.qty, 'volta', 'volte')} · ${set} in calendario${w.slots.length - set ? ` · ${w.slots.length - set} da programmare` : ''}`
+              ? `${plural(w.qty, 'volta', 'volte')}${doneAll ? ` · ${doneAll} già fatti` : ''} · ${set} in calendario${w.slots.length - set - pastDone ? ` · ${w.slots.length - set - pastDone} da programmare` : ''}`
               : 'Non previsto · tocca +'}</div>
           </div>
           <div class="stepper">
@@ -353,7 +361,10 @@ function stepWorks() {
 function stepPreview() {
   const d = draft;
   const works = d.works.filter((w) => w.qty > 0);
-  const planned = works.reduce((a, w) => a + w.slots.filter((s) => s.date).length, 0);
+  const t = todayISO();
+  const isPast = (s) => s.done && s.date && s.date <= t;
+  const planned = works.reduce((a, w) => a + w.slots.filter((s) => s.date && !isPast(s)).length, 0);
+  const pastN = works.reduce((a, w) => a + w.slots.filter(isPast).length, 0);
   const open = works.reduce((a, w) => a + w.slots.filter((s) => !s.date).length, 0);
 
   return `
@@ -361,7 +372,7 @@ function stepPreview() {
       <div class="row">
         <span class="option-ic">${icon('calendar')}</span>
         <div class="grow">
-          <strong class="strong" style="font-size:17px">${plural(planned, 'intervento', 'interventi')} in calendario${open ? ` · ${open} da programmare` : ''}</strong>
+          <strong class="strong" style="font-size:17px">${pastN ? `${pastN} già fatti · ` : ''}${plural(planned, 'intervento', 'interventi')} in calendario${open ? ` · ${open} da programmare` : ''}</strong>
           <p class="small muted">Contratto dal ${fmtLong(d.data.contractStart, true)} al ${fmtLong(d.data.contractEnd, true)}</p>
         </div>
       </div>
@@ -369,8 +380,9 @@ function stepPreview() {
     <div class="section">
       ${works.map((w) => {
         const type = store.typeById(w.typeId);
-        const dated = w.slots.filter((s) => s.date).map((s) => s.date).sort();
-        const left = w.slots.length - dated.length;
+        const past = w.slots.filter(isPast).map((s) => s.date).sort();
+        const dated = w.slots.filter((s) => s.date && !isPast(s)).map((s) => s.date).sort();
+        const left = w.slots.filter((s) => !s.date).length;
         return `
         <div class="card plan-days" style="--c:${type.color}">
           <div class="row">
@@ -382,6 +394,7 @@ function stepPreview() {
           </div>
           <div class="date-chips">
             ${w.doneDates.length || w.doneBefore ? `<span class="date-chip">${icon('check')} ${w.doneDates.length + (w.doneBefore || 0)} già fatti</span>` : ''}
+            ${past.map((x) => `<span class="date-chip">${icon('check')} fatto ${esc(fmtShort(x))}</span>`).join('')}
             ${dated.map((x) => `<span class="date-chip plain">${esc(fmtShort(x))}<small>${parseISO(x).getFullYear()}</small></span>`).join('')}
             ${left ? `<span class="date-chip todo">${icon('clock')} ${left} da programmare</span>` : ''}
           </div>
@@ -411,7 +424,9 @@ function validate() {
     const outside = w.slots.find((s) => s.date && (s.date < d.data.contractStart || s.date > d.data.contractEnd));
     if (outside) {
       d.open = at;
-      return `${name}: la data ${fmtDateNum(outside.date)} è fuori dal periodo del contratto`;
+      return outside.date < d.data.contractStart
+        ? `${name}: la data ${fmtDateNum(outside.date)} è prima dell’inizio del contratto: cambia la data “Dal” del contratto`
+        : `${name}: la data ${fmtDateNum(outside.date)} è dopo la fine del contratto`;
     }
     if (w.plan.mode === 'mensile' && !w.plan.days.length) { d.open = at; return `${name}: scegli i giorni del mese oppure togli la ripetizione`; }
     if (w.plan.mode === 'settimanale' && !w.plan.weekdays.length) { d.open = at; return `${name}: scegli i giorni della settimana oppure togli la ripetizione`; }
@@ -518,7 +533,16 @@ function mount(root) {
     }
     if (el.dataset.slot) {
       const s = slotAt(el.dataset.slot);
-      if (s) s.date = el.value || '';
+      if (s) {
+        s.date = el.value || '';
+        // una data passata è di solito un intervento già fatto (si può togliere la spunta)
+        s.done = !!s.date && s.date < todayISO();
+      }
+      rerender();
+    }
+    if (el.dataset.slotDone) {
+      const s = slotAt(el.dataset.slotDone);
+      if (s) s.done = el.checked;
       rerender();
     }
     if ('period' in el.dataset) rerender();
@@ -590,7 +614,7 @@ function mount(root) {
     }
     if (ds.clearSlot) {
       const s = slotAt(ds.clearSlot);
-      if (s) s.date = '';
+      if (s) { s.date = ''; s.done = false; }
       rerender();
       return;
     }
@@ -651,8 +675,10 @@ function mount(root) {
       } else {
         const condo = store.createCondo(payload);
         const jobs = store.jobsOfCondo(condo.id);
-        const dated = jobs.filter((j) => j.date).length;
-        toast(`${condo.name} salvato: ${plural(dated, 'intervento', 'interventi')} in calendario${jobs.length - dated ? `, ${jobs.length - dated} da programmare` : ''}`);
+        const doneN = jobs.filter(store.isDone).length;
+        const dated = jobs.filter((j) => j.date && !store.isDone(j)).length;
+        const openN = jobs.filter((j) => !j.date).length;
+        toast(`${condo.name} salvato: ${doneN ? `${doneN} già fatti, ` : ''}${plural(dated, 'intervento', 'interventi')} in calendario${openN ? `, ${openN} da programmare` : ''}`);
         draft = null;
         location.hash = `#/condomini/${condo.id}`;
       }

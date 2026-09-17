@@ -24,7 +24,7 @@ export const WORK_TYPES_VERSION = 3;
 // "home" dice quale Home vede la persona: 'gestione' (lavori) · 'scadenze' (contratti e appuntamenti)
 export const ROLES = {
   titolare: { label: 'Titolare', desc: 'Controllo completo: squadra, password, condomini e dati', home: 'gestione', perms: ['gestione', 'condomini', 'elimina', 'impostazioni', 'squadra', 'backup', 'dati', 'pagamenti'] },
-  ufficio: { label: 'Ufficio', desc: 'Condomini, contratti, pianificazione e assegnazioni', home: 'gestione', perms: ['gestione', 'condomini', 'impostazioni', 'backup'] },
+  ufficio: { label: 'Ufficio', desc: 'Condomini, contratti, pianificazione, assegnazioni e pagamenti', home: 'gestione', perms: ['gestione', 'condomini', 'impostazioni', 'backup', 'pagamenti'] },
   amministrazione: { label: 'Amministrazione', desc: 'Contabilità: pagamenti dei clienti, contatti, scadenze e controllo dei lavori', home: 'scadenze', perms: ['gestione', 'condomini', 'backup', 'pagamenti'] },
   giardiniere: { label: 'Giardiniere', desc: 'Calendario e spunta dei propri lavori', home: 'oggi', perms: [] },
 };

@@ -112,10 +112,10 @@ Supabase → **SQL Editor** → incolla → **Run**. Non cancella nessun dato: a
 - **Aggiornamenti in tempo reale**: quando un giardiniere spunta un lavoro, Martina e Nicolas lo vedono in pochi secondi.
 - **Permessi controllati dal database**, non solo dall'app:
   - giardiniere: vede tutto, spunta/rimanda/annota solo i lavori assegnati a lui (o senza assegnazione)
-  - ufficio (Martina): condomini, contratti, pianificazione, tipi di lavoro
+  - ufficio (Martina): condomini, contratti, pianificazione, tipi di lavoro, pagamenti
   - amministrazione (Alessandro): pagamenti dei clienti, contatti, scadenze, controllo dei lavori, condomini e appuntamenti
   - titolare (Nicolas): tutto, compresi squadra, password, pagamenti ed eliminazione condomini
-  - i **pagamenti** li vedono solo Nicolas e Alessandro (Martina e i giardinieri no)
+  - i **pagamenti** li vedono Nicolas, Martina e Alessandro (i giardinieri no)
 - **Piano gratuito Supabase**: il progetto va in pausa dopo 7 giorni senza nessun accesso (con l'uso quotidiano non succede). Non ci sono backup automatici: da **Altro → Scarica backup** una volta a settimana.
 - **Password dimenticata**: Nicolas → Squadra → tocca la persona → Nuova password (serve il punto 5). In alternativa da Supabase → Authentication → Users → la persona → *Send password recovery* non funziona (email finte): usa invece i tre puntini → modifica password.
 - **Dati della versione di prova** già inseriti su un computer: su quel computer, *prima* di collegare Supabase, Altro → Scarica backup; poi, entrati come Nicolas nella versione online, Altro → Carica backup.
