@@ -295,6 +295,8 @@
 .menu-row .row-ic .ic { width: 19px; height: 19px; }
 .menu-row.danger strong, .menu-row.danger .row-ic { color: var(--red); }
 .menu-row.danger .row-ic { background: var(--red-50); }
+.menu-row.warn strong, .menu-row.warn .row-ic { color: #8A5F0B; }
+.menu-row.warn .row-ic { background: var(--amber-50); }
 .install-banner { display: flex; align-items: center; gap: 12px; padding: 12px 12px 12px 14px; border-radius: 16px; background: var(--green-900); color: #DDEFD8; margin-bottom: 16px; font-size: 13.5px; }
 .install-banner img { width: 38px; height: 38px; border-radius: 10px; flex: none; }
 .install-banner strong { color: #fff; display: block; font-size: 14.5px; }

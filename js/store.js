@@ -1147,6 +1147,23 @@ export function updateCondo(id, data) {
   commit();
 }
 
+/**
+ * Azzera il contratto di un condominio: toglie tutti gli interventi (anche quelli già fatti)
+ * e i lavori che erano stati impostati, per poterlo rifare da capo.
+ * Restano i dati del condominio, la squadra, le note e i pagamenti.
+ * @returns {{jobs: number, works: number}} quanti ne sono stati tolti
+ */
+export function resetContract(id) {
+  const c = condoById(id);
+  if (!c || !can('condomini')) return { jobs: 0, works: 0 };
+  const jobs = state.jobs.filter((j) => j.condoId === id).length;
+  const works = c.works.length;
+  state.jobs = state.jobs.filter((j) => j.condoId !== id);
+  c.works = [];
+  commit();
+  return { jobs, works };
+}
+
 export function deleteCondo(id) {
   state.condos = state.condos.filter((c) => c.id !== id);
   state.jobs = state.jobs.filter((j) => j.condoId !== id);

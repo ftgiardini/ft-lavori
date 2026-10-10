@@ -4,6 +4,7 @@ import { icon } from '../icons.js';
 import { rerender, confirmDialog, toast, isWide } from '../ui.js';
 import { jobCard, progressBar, sectionHead, typeIcon, seasonChips, avatar, emptyState } from '../components.js';
 import { openAddJobSheet } from './job-sheet.js';
+import { resetForm } from './condo-form.js';
 import { planLabel, hasRule } from '../scheduler.js';
 import { condoPaymentsSection, bindPaymentClicks } from './payments.js';
 import { esc, todayISO, relDay, fmtDateNum, monthsLabel, mapsUrl, plural } from '../utils.js';
@@ -231,6 +232,12 @@ export function renderDetail(id) {
           <span class="grow"><strong>Proponi le date che mancano</strong><small>Mette in calendario gli interventi da programmare usando la ripetizione di ogni lavoro</small></span>
           ${icon('right')}
         </button>` : ''}
+        ${condo.works.length || jobs.length ? `
+        <button class="menu-row warn" data-reset>
+          <span class="row-ic">${icon('redo')}</span>
+          <span class="grow"><strong>Azzera contratto</strong><small>Toglie tutti i lavori e le date impostate e riparte da zero (restano dati, squadra e pagamenti)</small></span>
+          ${icon('right')}
+        </button>` : ''}
         ${store.can('elimina') ? `
         <button class="menu-row danger" data-delete>
           <span class="row-ic">${icon('trash')}</span>
@@ -269,6 +276,21 @@ export function renderDetail(id) {
           if (ok) {
             const n = store.fillSuggested(id);
             toast(n ? `${plural(n, 'intervento messo', 'interventi messi')} in calendario: controllali qui sotto` : 'Nessuna data libera trovata con la ripetizione');
+          }
+        }
+        if (e.target.closest('[data-reset]')) {
+          const done = jobs.filter(store.isDone).length;
+          const ok = await confirmDialog({
+            title: `Azzerare il contratto di ${condo.name}?`,
+            message: `Verranno tolti ${plural(condo.works.length, 'lavoro del contratto', 'lavori del contratto')} e ${plural(jobs.length, 'intervento', 'interventi')}${done ? ` (${plural(done, 'già fatto', 'già fatti')})` : ''}. Restano il condominio, i contatti, la squadra, le note e i pagamenti. Non si può annullare.`,
+            confirmText: 'Azzera e ricomincia',
+            danger: true,
+          });
+          if (ok) {
+            const n = store.resetContract(id);
+            resetForm();
+            toast(`Contratto azzerato: ${plural(n.jobs, 'intervento tolto', 'interventi tolti')}. Reinserisci i lavori.`, { duration: 7000 });
+            location.hash = `#/condomini/${id}/modifica`;
           }
         }
         if (e.target.closest('[data-delete]') && store.can('elimina')) {
