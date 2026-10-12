@@ -235,7 +235,7 @@ export function renderDetail(id) {
         ${condo.works.length || jobs.length ? `
         <button class="menu-row warn" data-reset>
           <span class="row-ic">${icon('redo')}</span>
-          <span class="grow"><strong>Azzera contratto</strong><small>Toglie tutti i lavori e le date impostate e riparte da zero (restano dati, squadra e pagamenti)</small></span>
+          <span class="grow"><strong>Azzera contratto</strong><small>Rimette a zero gli interventi fatti e tutte le date. I lavori e le quantità restano, da riprogrammare</small></span>
           ${icon('right')}
         </button>` : ''}
         ${store.can('elimina') ? `
@@ -279,18 +279,19 @@ export function renderDetail(id) {
           }
         }
         if (e.target.closest('[data-reset]')) {
-          const done = jobs.filter(store.isDone).length;
+          const done = jobs.filter(store.isDone).length + condo.works.reduce((a, w) => a + (w.doneBefore || 0), 0);
+          const qty = condo.works.reduce((a, w) => a + w.qty, 0);
           const ok = await confirmDialog({
             title: `Azzerare il contratto di ${condo.name}?`,
-            message: `Verranno tolti ${plural(condo.works.length, 'lavoro del contratto', 'lavori del contratto')} e ${plural(jobs.length, 'intervento', 'interventi')}${done ? ` (${plural(done, 'già fatto', 'già fatti')})` : ''}. Restano il condominio, i contatti, la squadra, le note e i pagamenti. Non si può annullare.`,
+            message: `${done ? `${plural(done, 'intervento fatto torna', 'interventi fatti tornano')} da fare` : 'Tutti gli interventi tornano da fare'} e si tolgono tutte le date: resteranno ${plural(qty, 'intervento', 'interventi')} da programmare.<br><br>I lavori del contratto e le quantità <b>non cambiano</b>: ${esc(condo.works.map((w) => `${store.typeById(w.typeId).name} ×${w.qty}`).join(', '))}.<br><br>Non si può annullare.`,
             confirmText: 'Azzera e ricomincia',
             danger: true,
           });
           if (ok) {
             const n = store.resetContract(id);
             resetForm();
-            toast(`Contratto azzerato: ${plural(n.jobs, 'intervento tolto', 'interventi tolti')}. Reinserisci i lavori.`, { duration: 7000 });
-            location.hash = `#/condomini/${id}/modifica`;
+            rerender();
+            toast(`Contratto azzerato: ${plural(n.toPlan, 'intervento', 'interventi')} da programmare, i lavori restano.`, { duration: 7000 });
           }
         }
         if (e.target.closest('[data-delete]') && store.can('elimina')) {

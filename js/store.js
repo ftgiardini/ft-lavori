@@ -1148,20 +1148,28 @@ export function updateCondo(id, data) {
 }
 
 /**
- * Azzera il contratto di un condominio: toglie tutti gli interventi (anche quelli già fatti)
- * e i lavori che erano stati impostati, per poterlo rifare da capo.
- * Restano i dati del condominio, la squadra, le note e i pagamenti.
- * @returns {{jobs: number, works: number}} quanti ne sono stati tolti
+ * Riparte da zero con il contratto di un condominio: azzera gli interventi fatti e tutte le date.
+ * I lavori del contratto e le quantità NON si toccano (es. restano 10 sfalci), e tornano
+ * tutti da programmare. Restano anche dati, squadra, note e pagamenti.
+ * @returns {{removed: number, done: number, toPlan: number, works: number}}
  */
 export function resetContract(id) {
   const c = condoById(id);
-  if (!c || !can('condomini')) return { jobs: 0, works: 0 };
-  const jobs = state.jobs.filter((j) => j.condoId === id).length;
-  const works = c.works.length;
+  if (!c || !can('condomini')) return { removed: 0, done: 0, toPlan: 0, works: 0 };
+  const mine = state.jobs.filter((j) => j.condoId === id);
+  const removed = mine.length;
+  const done = mine.filter(isDone).length + c.works.reduce((a, w) => a + (w.doneBefore || 0), 0);
   state.jobs = state.jobs.filter((j) => j.condoId !== id);
-  c.works = [];
+  let toPlan = 0;
+  for (const w of c.works) {
+    w.doneBefore = 0;
+    for (let i = 0; i < w.qty; i++) {
+      state.jobs.push(newJob(c, w, null));
+      toPlan++;
+    }
+  }
   commit();
-  return { jobs, works };
+  return { removed, done, toPlan, works: c.works.length };
 }
 
 export function deleteCondo(id) {
